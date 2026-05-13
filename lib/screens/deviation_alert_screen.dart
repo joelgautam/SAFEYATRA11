@@ -11,7 +11,7 @@ class DeviationAlertScreen extends StatefulWidget {
 
 class _DeviationAlertScreenState extends State<DeviationAlertScreen>
     with SingleTickerProviderStateMixin {
-  int _secondsLeft = 30;
+  int _secondsLeft = 8;
   Timer? _countdownTimer;
 
   late AnimationController _circleController;
@@ -24,7 +24,7 @@ class _DeviationAlertScreenState extends State<DeviationAlertScreen>
     // Circle countdown animation
     _circleController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 30),
+      duration: const Duration(seconds: 8),
     );
     _circleAnimation = Tween<double>(begin: 1.0, end: 0.0).animate(
       CurvedAnimation(parent: _circleController, curve: Curves.linear),
@@ -53,72 +53,23 @@ class _DeviationAlertScreenState extends State<DeviationAlertScreen>
   void _imSafe() {
     _countdownTimer?.cancel();
     _circleController.stop();
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+      return;
+    }
     Navigator.pushReplacementNamed(context, '/passive');
   }
 
   void _needHelp() {
     _countdownTimer?.cancel();
     _circleController.stop();
-    _showSosDialog();
+    Navigator.pushReplacementNamed(context, '/guardian');
   }
 
   void _sendAutoAlert() {
     if (mounted) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text('🚨 Alert Sent!',
-              style: TextStyle(fontWeight: FontWeight.w800)),
-          content: const Text(
-              'Your emergency contacts have been notified with your live location.'),
-          actions: [
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(ctx);
-                Navigator.pushReplacementNamed(context, '/passive');
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFB71C1C),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-              ),
-              child: const Text('OK', style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        ),
-      );
+      Navigator.pushReplacementNamed(context, '/alert-sent');
     }
-  }
-
-  void _showSosDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('🚨 Sending SOS Alert',
-            style: TextStyle(fontWeight: FontWeight.w800)),
-        content: const Text(
-            'Alerting your emergency contacts with your live location now!'),
-        actions: [
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              Navigator.pushReplacementNamed(context, '/passive');
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFB71C1C),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-            ),
-            child: const Text('OK', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -203,12 +154,12 @@ class _DeviationAlertScreenState extends State<DeviationAlertScreen>
                   Container(
                     width: 72,
                     height: 72,
-                    decoration: BoxDecoration(
+                    decoration: const BoxDecoration(
                       shape: BoxShape.circle,
-                      color: const Color(0xFFFFEBEE),
+                      color: Color(0xFFFFEBEE),
                     ),
                     child: const Icon(Icons.warning_rounded,
-                        color: Color(0xFFB71C1C), size: 36),
+                        color: Color.fromARGB(255, 95, 45, 152), size: 36),
                   ),
 
                   const SizedBox(height: 24),
@@ -292,9 +243,9 @@ class _DeviationAlertScreenState extends State<DeviationAlertScreen>
                           borderRadius: BorderRadius.circular(27),
                         ),
                       ),
-                      child: Row(
+                      child: const Row(
                         mainAxisAlignment: MainAxisAlignment.center,
-                        children: const [
+                        children: [
                           Icon(Icons.check_circle_outline,
                               color: Color(0xFF6B5FE6), size: 20),
                           SizedBox(width: 8),
@@ -318,15 +269,15 @@ class _DeviationAlertScreenState extends State<DeviationAlertScreen>
                     child: ElevatedButton(
                       onPressed: _needHelp,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFB71C1C),
+                        backgroundColor: const Color.fromARGB(255, 71, 39, 113),
                         elevation: 0,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(27),
                         ),
                       ),
-                      child: Row(
+                      child: const Row(
                         mainAxisAlignment: MainAxisAlignment.center,
-                        children: const [
+                        children: [
                           Icon(Icons.location_on,
                               color: Colors.white, size: 20),
                           SizedBox(width: 8),
@@ -345,7 +296,7 @@ class _DeviationAlertScreenState extends State<DeviationAlertScreen>
 
                   // Auto alert countdown
                   Text(
-                    'AUTOMATIC ALERT IN ${_secondsLeft - 2 > 0 ? _secondsLeft - 2 : 0}S',
+                    'AUTOMATIC ALERT IN ${_secondsLeft > 0 ? _secondsLeft : 0}S',
                     style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
@@ -368,11 +319,12 @@ class _DeviationAlertScreenState extends State<DeviationAlertScreen>
                 width: 60,
                 height: 60,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFB71C1C),
+                  color: const Color.fromARGB(255, 102, 37, 139),
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFFB71C1C).withOpacity(0.4),
+                      color: const Color.fromARGB(255, 39, 17, 106)
+                          .withOpacity(0.4),
                       blurRadius: 16,
                       offset: const Offset(0, 4),
                     ),
@@ -414,25 +366,28 @@ class _DeviationAlertScreenState extends State<DeviationAlertScreen>
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
                       _NavItem(
+                          icon: Icons.home_outlined,
+                          label: 'HOME',
+                          isSelected: false,
+                          onTap: () => Navigator.pushReplacementNamed(
+                              context, '/home')),
+                      _NavItem(
                           icon: Icons.explore_outlined,
                           label: 'EXPLORE',
-                          isSelected: false,
-                          onTap: () {}),
-                      _NavItem(
-                          icon: Icons.book_outlined,
-                          label: 'JOURNEY',
                           isSelected: true,
                           onTap: () {}),
                       _NavItem(
-                          icon: Icons.shield_outlined,
-                          label: 'SAFETY',
+                          icon: Icons.warning_outlined,
+                          label: 'ALERTS',
                           isSelected: false,
-                          onTap: () {}),
+                          onTap: () => Navigator.pushReplacementNamed(
+                              context, '/alerts')),
                       _NavItem(
                           icon: Icons.person_outline,
                           label: 'PROFILE',
                           isSelected: false,
-                          onTap: () {}),
+                          onTap: () => Navigator.pushReplacementNamed(
+                              context, '/profile')),
                     ],
                   ),
                 ),

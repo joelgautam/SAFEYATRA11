@@ -10,10 +10,6 @@ class PassiveModeScreen extends StatefulWidget {
 
 class _PassiveModeScreenState extends State<PassiveModeScreen>
     with TickerProviderStateMixin {
-  // ETA countdown
-  int _etaMinutes = 8;
-  Timer? _etaTimer;
-
   // Pulsing dot animation
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -46,14 +42,6 @@ class _PassiveModeScreenState extends State<PassiveModeScreen>
       CurvedAnimation(parent: _routeController, curve: Curves.linear),
     );
 
-    // ETA countdown
-    _etaTimer = Timer.periodic(const Duration(seconds: 60), (t) {
-      if (_etaMinutes > 0) {
-        setState(() => _etaMinutes--);
-      } else {
-        t.cancel();
-      }
-    });
 // ── Simulate deviation after 8 seconds ──
     Future.delayed(const Duration(seconds: 8), () {
       if (mounted) {
@@ -66,7 +54,6 @@ class _PassiveModeScreenState extends State<PassiveModeScreen>
   void dispose() {
     _pulseController.dispose();
     _routeController.dispose();
-    _etaTimer?.cancel();
     super.dispose();
   }
 
@@ -85,8 +72,12 @@ class _PassiveModeScreenState extends State<PassiveModeScreen>
                       const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                   child: Row(
                     children: [
-                      const Icon(Icons.menu,
-                          color: Color(0xFF1A1A2E), size: 24),
+                      GestureDetector(
+                        onTap: () => Navigator.pop(context),
+                        child: const Icon(Icons.arrow_back_ios,
+                            color: Color(0xFF1A1A2E), size: 20),
+                      ),
+                      const SizedBox(width: 8),
                       const SizedBox(width: 14),
                       const Text('SafeYatra',
                           style: TextStyle(
@@ -138,10 +129,10 @@ class _PassiveModeScreenState extends State<PassiveModeScreen>
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
+                              const Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: const [
+                                  children: [
                                     Text('Monitoring Your Trip',
                                         style: TextStyle(
                                           fontSize: 20,
@@ -243,85 +234,6 @@ class _PassiveModeScreenState extends State<PassiveModeScreen>
                                       animation: _routeAnimation),
                                 ),
 
-                                // Next Stop card at bottom
-                                Positioned(
-                                  bottom: 16,
-                                  left: 16,
-                                  right: 16,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 16, vertical: 12),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(16),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withOpacity(0.1),
-                                          blurRadius: 10,
-                                        ),
-                                      ],
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Container(
-                                          width: 44,
-                                          height: 44,
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFFFEBEE),
-                                            borderRadius:
-                                                BorderRadius.circular(12),
-                                          ),
-                                          child: const Icon(
-                                              Icons.directions_bus,
-                                              color: Color(0xFFE05555),
-                                              size: 22),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: const [
-                                              Text('NEXT STOP',
-                                                  style: TextStyle(
-                                                    fontSize: 9,
-                                                    fontWeight: FontWeight.w700,
-                                                    color: Color(0xFF9B96B8),
-                                                    letterSpacing: 1.2,
-                                                  )),
-                                              SizedBox(height: 2),
-                                              Text('Pulchowk',
-                                                  style: TextStyle(
-                                                    fontSize: 16,
-                                                    fontWeight: FontWeight.w700,
-                                                    color: Color(0xFF1A1A2E),
-                                                  )),
-                                            ],
-                                          ),
-                                        ),
-                                        Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.end,
-                                          children: [
-                                            Text(
-                                              '$_etaMinutes min',
-                                              style: const TextStyle(
-                                                fontSize: 20,
-                                                fontWeight: FontWeight.w800,
-                                                color: Color(0xFFE05555),
-                                              ),
-                                            ),
-                                            const Text('ETA 18:42',
-                                                style: TextStyle(
-                                                  fontSize: 11,
-                                                  color: Color(0xFF9B96B8),
-                                                )),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
                               ],
                             ),
                           ),
@@ -330,22 +242,22 @@ class _PassiveModeScreenState extends State<PassiveModeScreen>
                         const SizedBox(height: 16),
 
                         // ── Live Share + Safety Vault cards ───────────────
-                        Row(
+                        const Row(
                           children: [
                             Expanded(
                               child: _FeatureCard(
                                 icon: Icons.location_searching,
-                                iconColor: const Color(0xFF6B5FE6),
+                                iconColor: Color(0xFF6B5FE6),
                                 title: 'Live Share',
                                 subtitle: 'Sharing with 3 friends',
                                 badge: null,
                               ),
                             ),
-                            const SizedBox(width: 12),
+                            SizedBox(width: 12),
                             Expanded(
                               child: _FeatureCard(
                                 icon: Icons.security,
-                                iconColor: const Color(0xFF6B5FE6),
+                                iconColor: Color(0xFF6B5FE6),
                                 title: 'Safety Vault',
                                 subtitle: 'Audio recording active',
                                 badge: 'SOS',
@@ -635,22 +547,22 @@ class _BottomNav extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _NavItem(
-                icon: Icons.explore_outlined,
-                label: 'EXPLORE',
+                icon: Icons.home_outlined,
+                label: 'HOME',
                 isSelected: false,
-                onTap: () {},
+                onTap: () => Navigator.pushReplacementNamed(context, '/home'),
               ),
               _NavItem(
-                icon: Icons.book_outlined,
-                label: 'JOURNEY',
+                icon: Icons.explore_outlined,
+                label: 'EXPLORE',
                 isSelected: true,
                 onTap: () {},
               ),
               _NavItem(
-                icon: Icons.shield_outlined,
-                label: 'SAFETY',
+                icon: Icons.warning_outlined,
+                label: 'ALERTS',
                 isSelected: false,
-                onTap: () {},
+                onTap: () => Navigator.pushReplacementNamed(context, '/alerts'),
               ),
               _NavItem(
                 icon: Icons.person_outline,

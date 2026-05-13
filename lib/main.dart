@@ -1,9 +1,17 @@
 import 'package:flutter/material.dart';
 import 'screens/otp_login_screen.dart';
 import 'screens/verified_screen.dart';
+import 'screens/home_screen.dart';
 import 'screens/trip_setup_screen.dart';
 import 'screens/passive_mode_screen.dart';
 import 'screens/deviation_alert_screen.dart';
+import 'screens/profile_screen.dart';
+import 'screens/explore_screen.dart';
+import 'screens/alerts_main_screen.dart';
+import 'screens/guardian_sanctuary_screen.dart';
+import 'screens/guardian_contacts_screen.dart';
+import 'screens/alert_sent_screen.dart';
+import 'screens/faq_info_screen.dart';
 
 void main() {
   runApp(const SafeYatraApp());
@@ -27,9 +35,17 @@ class SafeYatraApp extends StatelessWidget {
       routes: {
         '/otp': (context) => const OtpLoginScreen(),
         '/verified': (context) => const VerifiedScreen(),
-        '/trip': (context) => const TripSetupScreen(),
+        '/home': (context) => const HomeScreen(),
+        '/trip': (context) => TripSetupScreen(),
         '/passive': (context) => const PassiveModeScreen(),
         '/deviation': (context) => const DeviationAlertScreen(),
+        '/profile': (context) => const ProfileScreen(),
+        '/explore': (context) => const ExploreScreen(),
+        '/alerts': (context) => const AlertsMainScreen(),
+        '/guardian': (context) => const GuardianSanctuaryScreen(),
+        '/guardian-contacts': (context) => const GuardianContactsScreen(),
+        '/alert-sent': (context) => const AlertSentScreen(),
+        '/faq-info': (context) => const FaqInfoScreen(),
       },
     );
   }

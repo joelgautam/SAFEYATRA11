@@ -72,6 +72,15 @@ class _TripSetupScreenState extends State<TripSetupScreen>
     }
   }
 
+  void _showNotificationPlaceholder() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('No notifications yet'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
@@ -146,7 +155,8 @@ class _TripSetupScreenState extends State<TripSetupScreen>
                     ),
                     const Spacer(),
                     _MapButton(
-                        icon: Icons.notifications_outlined, onTap: () {}),
+                        icon: Icons.notifications_outlined,
+                        onTap: _showNotificationPlaceholder),
                   ],
                 ),
               ),
@@ -307,16 +317,18 @@ class _TripSetupScreenState extends State<TripSetupScreen>
                           GestureDetector(
                             onTapDown: (_) =>
                                 setState(() => _isButtonPressed = true),
-                            onTapUp: (_) => setState(() {
-                              _isButtonPressed = false;
-                              _isPassiveActivated = !_isPassiveActivated;
-                              if (_isPassiveActivated) {
-                                Future.delayed(
-                                    const Duration(milliseconds: 800), () {
+                            onTapUp: (_) {
+                              setState(() {
+                                _isButtonPressed = false;
+                                _isPassiveActivated = true;
+                              });
+                              Future.delayed(const Duration(milliseconds: 600),
+                                  () {
+                                if (mounted) {
                                   Navigator.pushNamed(context, '/passive');
-                                });
-                              }
-                            }),
+                                }
+                              });
+                            },
                             onTapCancel: () =>
                                 setState(() => _isButtonPressed = false),
                             child: AnimatedScale(
@@ -448,8 +460,8 @@ class _TripSetupScreenState extends State<TripSetupScreen>
                         onTap: () => _onNavTap(0),
                       ),
                       _NavItem(
-                        icon: Icons.book_outlined,
-                        label: 'TRIPS',
+                        icon: Icons.explore_outlined,
+                        label: 'EXPLORE',
                         isSelected: _selectedNavIndex == 1,
                         onTap: () => _onNavTap(1),
                       ),

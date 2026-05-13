@@ -28,6 +28,9 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
   final List<TextEditingController> _controllers =
       List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
+  final TextEditingController _phoneController =
+      TextEditingController(text: '+977 ');
+  final FocusNode _phoneFocusNode = FocusNode();
 
   int _secondsLeft = 30;
   bool _canResend = false;
@@ -78,8 +81,14 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
 
   @override
   void dispose() {
-    for (final c in _controllers) c.dispose();
-    for (final f in _focusNodes) f.dispose();
+    _phoneController.dispose();
+    _phoneFocusNode.dispose();
+    for (final c in _controllers) {
+      c.dispose();
+    }
+    for (final f in _focusNodes) {
+      f.dispose();
+    }
     _timer?.cancel();
     super.dispose();
   }
@@ -101,7 +110,7 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
               const SizedBox(height: 28),
 
               // ── Title ──────────────────────────────────────────────────
-              Text(
+              const Text(
                 'Verify Your Number',
                 style: TextStyle(
                   fontSize: 28,
@@ -111,7 +120,7 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
                 ),
               ),
               const SizedBox(height: 8),
-              Text(
+              const Text(
                 'Enter 6-digit OTP sent to your phone',
                 style: TextStyle(
                   fontSize: 14,
@@ -139,7 +148,10 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
                 child: Column(
                   children: [
                     // Phone row
-                    _PhoneRow(),
+                    _PhoneRow(
+                      controller: _phoneController,
+                      focusNode: _phoneFocusNode,
+                    ),
                     const SizedBox(height: 24),
 
                     // OTP boxes
@@ -181,7 +193,7 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
                     _canResend
                         ? TextButton(
                             onPressed: _resend,
-                            child: Text(
+                            child: const Text(
                               'Resend OTP',
                               style: TextStyle(
                                 color: SYColors.lavenderPrimary,
@@ -193,17 +205,17 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
                         : Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.lock_outline,
+                              const Icon(Icons.lock_outline,
                                   size: 14, color: SYColors.textGrey),
                               const SizedBox(width: 6),
-                              Text(
+                              const Text(
                                 'Resend OTP in ',
                                 style: TextStyle(
                                     fontSize: 13, color: SYColors.textGrey),
                               ),
                               Text(
                                 '${_secondsLeft}s',
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.bold,
                                   color: SYColors.lavenderPrimary,
@@ -218,7 +230,7 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
               const SizedBox(height: 24),
 
               // ── Info Cards ─────────────────────────────────────────────
-              Row(
+              const Row(
                 children: [
                   Expanded(
                     child: _InfoCard(
@@ -227,7 +239,7 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
                       subtitle: 'Our support team is available 24/7 for you.',
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  SizedBox(width: 12),
                   Expanded(
                     child: _InfoCard(
                       icon: Icons.security,
@@ -287,6 +299,14 @@ class _LogoBadge extends StatelessWidget {
 
 // ── Phone Row ──────────────────────────────────────────────────────────────
 class _PhoneRow extends StatelessWidget {
+  final TextEditingController controller;
+  final FocusNode focusNode;
+
+  const _PhoneRow({
+    required this.controller,
+    required this.focusNode,
+  });
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -312,7 +332,7 @@ class _PhoneRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('PHONE NUMBER',
+                const Text('PHONE NUMBER',
                     style: TextStyle(
                       fontSize: 9,
                       fontWeight: FontWeight.w700,
@@ -320,22 +340,37 @@ class _PhoneRow extends StatelessWidget {
                       letterSpacing: 1,
                     )),
                 const SizedBox(height: 2),
-                Text('+977 ••••••••456',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: SYColors.textDark,
-                    )),
+                TextField(
+                  controller: controller,
+                  focusNode: focusNode,
+                  keyboardType: TextInputType.phone,
+                  textInputAction: TextInputAction.done,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: SYColors.textDark,
+                  ),
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    border: InputBorder.none,
+                    contentPadding: EdgeInsets.zero,
+                    hintText: 'Enter phone number',
+                    hintStyle: TextStyle(
+                      color: SYColors.textGrey,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
           TextButton(
-            onPressed: () {},
+            onPressed: () => FocusScope.of(context).requestFocus(focusNode),
             style: TextButton.styleFrom(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               minimumSize: Size.zero,
             ),
-            child: Text('Edit',
+            child: const Text('Edit',
                 style: TextStyle(
                   color: SYColors.lavenderPrimary,
                   fontWeight: FontWeight.w600,
@@ -514,7 +549,7 @@ class _InfoCard extends StatelessWidget {
               )),
           const SizedBox(height: 4),
           Text(subtitle,
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 11,
                 color: SYColors.textGrey,
                 height: 1.4,

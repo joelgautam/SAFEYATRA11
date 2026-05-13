@@ -33,7 +33,7 @@ class _VerifiedScreenState extends State<VerifiedScreen>
   }
 
   void _goToTrip() {
-    Navigator.pushReplacementNamed(context, '/trip');
+    Navigator.pushReplacementNamed(context, '/home');
   }
 
   @override
@@ -235,9 +235,9 @@ class _VerifiedScreenState extends State<VerifiedScreen>
                             borderRadius: BorderRadius.circular(29),
                           ),
                         ),
-                        child: Row(
+                        child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
-                          children: const [
+                          children: [
                             Text('Start Your Safe Journey',
                                 style: TextStyle(
                                   fontSize: 16,
