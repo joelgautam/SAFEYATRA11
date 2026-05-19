@@ -1,8 +1,33 @@
 import 'package:flutter/material.dart';
 import 'buttom_navigation_screen.dart';
 
-class AlertsMainScreen extends StatelessWidget {
+class AlertsMainScreen extends StatefulWidget {
   const AlertsMainScreen({super.key});
+
+  @override
+  State<AlertsMainScreen> createState() => _AlertsMainScreenState();
+}
+
+class _AlertsMainScreenState extends State<AlertsMainScreen> {
+  bool _isRecording = false;
+
+  void _startRecording() {
+    setState(() {
+      _isRecording = true;
+    });
+    // TODO: Start voice recording here
+    // TODO: Start background monitoring and performance tracking here
+    print('Recording started');
+  }
+
+  void _stopRecording() {
+    setState(() {
+      _isRecording = false;
+    });
+    // TODO: Stop voice recording here
+    // TODO: Stop background monitoring here
+    print('Recording stopped');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -55,10 +80,15 @@ class AlertsMainScreen extends StatelessWidget {
                       height: 132,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: const Color(0xFF6E4ACD),
+                        color: _isRecording
+                            ? const Color(0xFFE05555)
+                            : const Color(0xFF6E4ACD),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFF6E4ACD).withOpacity(0.25),
+                            color: (_isRecording
+                                    ? const Color(0xFFE05555)
+                                    : const Color(0xFF6E4ACD))
+                                .withOpacity(0.25),
                             blurRadius: 20,
                             offset: const Offset(0, 6),
                           ),
@@ -71,20 +101,22 @@ class AlertsMainScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 24),
-              const Text(
-                'Recording in progress...',
+              Text(
+                _isRecording ? 'Recording in progress...' : 'Ready to Record',
                 textAlign: TextAlign.center,
-                style: TextStyle(
+                style: const TextStyle(
                   color: Color(0xFF17151F),
                   fontSize: 42 / 1.6,
                   fontWeight: FontWeight.w800,
                 ),
               ),
               const SizedBox(height: 10),
-              const Text(
-                'The screen is dimmed and silent for your\nprotection. Your activity is being logged securely.',
+              Text(
+                _isRecording
+                    ? 'The screen is dimmed and silent for your\nprotection. Your activity is being logged securely.'
+                    : 'Click the START button below to begin recording\nand start background monitoring.',
                 textAlign: TextAlign.center,
-                style: TextStyle(
+                style: const TextStyle(
                   color: Color(0xFF5B5768),
                   fontSize: 15,
                   height: 1.45,
@@ -92,19 +124,21 @@ class AlertsMainScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 24),
-              _SignalCard(
-                title: 'LIVE MONITORING',
-                message: 'Analyzing surrounding audio...',
-                trailing: const Icon(Icons.graphic_eq_rounded,
-                    color: Color(0xFFB7AEDD), size: 24),
-              ),
-              const SizedBox(height: 12),
-              _SignalCard(
-                title: 'SAFETY KEYWORD FOUND',
-                message: '"Help"',
-                leadingIcon: Icons.sensors,
-              ),
-              const SizedBox(height: 16),
+              if (_isRecording) ...[
+                _SignalCard(
+                  title: 'LIVE MONITORING',
+                  message: 'Analyzing surrounding audio...',
+                  trailing: const Icon(Icons.graphic_eq_rounded,
+                      color: Color(0xFFB7AEDD), size: 24),
+                ),
+                const SizedBox(height: 12),
+                _SignalCard(
+                  title: 'SAFETY KEYWORD FOUND',
+                  message: '"Help"',
+                  leadingIcon: Icons.sensors,
+                ),
+                const SizedBox(height: 16),
+              ],
               const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -134,6 +168,36 @@ class AlertsMainScreen extends StatelessWidget {
                       color: index == 1
                           ? const Color(0xFFB3ACC7)
                           : const Color(0xFFD8D3E8),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 30),
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: ElevatedButton(
+                  onPressed: _isRecording ? _stopRecording : _startRecording,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _isRecording
+                        ? const Color(0xFFE05555)
+                        : const Color(0xFF6E4ACD),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: 8,
+                    shadowColor: (_isRecording
+                            ? const Color(0xFFE05555)
+                            : const Color(0xFF6E4ACD))
+                        .withOpacity(0.3),
+                  ),
+                  child: Text(
+                    _isRecording ? 'STOP' : 'START',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      letterSpacing: 1,
                     ),
                   ),
                 ),
