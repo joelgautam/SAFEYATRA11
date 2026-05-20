@@ -17,7 +17,7 @@ class _AlertsMainScreenState extends State<AlertsMainScreen> {
     });
     // TODO: Start voice recording here
     // TODO: Start background monitoring and performance tracking here
-    print('Recording started');
+    debugPrint('Recording started');
   }
 
   void _stopRecording() {
@@ -26,7 +26,11 @@ class _AlertsMainScreenState extends State<AlertsMainScreen> {
     });
     // TODO: Stop voice recording here
     // TODO: Stop background monitoring here
-    print('Recording stopped');
+    debugPrint('Recording stopped');
+  }
+
+  void _toggleRecording() {
+    _isRecording ? _stopRecording() : _startRecording();
   }
 
   @override
@@ -67,42 +71,55 @@ class _AlertsMainScreenState extends State<AlertsMainScreen> {
               ),
               const SizedBox(height: 30),
               Center(
-                child: Container(
-                  width: 196,
-                  height: 196,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Color(0xFFF2EEFD),
-                  ),
-                  child: Center(
-                    child: Container(
-                      width: 132,
-                      height: 132,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: _isRecording
-                            ? const Color(0xFFE05555)
-                            : const Color(0xFF6E4ACD),
-                        boxShadow: [
-                          BoxShadow(
-                            color: (_isRecording
-                                    ? const Color(0xFFE05555)
-                                    : const Color(0xFF6E4ACD))
-                                .withOpacity(0.25),
-                            blurRadius: 20,
-                            offset: const Offset(0, 6),
+                child: GestureDetector(
+                  onTap: _toggleRecording,
+                  child: Container(
+                    width: 196,
+                    height: 196,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Color(0xFFF2EEFD),
+                    ),
+                    child: Center(
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 220),
+                        width: 132,
+                        height: 132,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _isRecording
+                              ? const Color(0xFFE05555)
+                              : const Color(0xFF6E4ACD),
+                          boxShadow: [
+                            BoxShadow(
+                              color: (_isRecording
+                                      ? const Color(0xFFE05555)
+                                      : const Color(0xFF6E4ACD))
+                                  .withOpacity(0.25),
+                              blurRadius: 20,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 180),
+                          child: Icon(
+                            _isRecording
+                                ? Icons.graphic_eq_rounded
+                                : Icons.mic_none_rounded,
+                            key: ValueKey(_isRecording),
+                            size: 38,
+                            color: Colors.white,
                           ),
-                        ],
+                        ),
                       ),
-                      child: const Icon(Icons.mic_none_rounded,
-                          size: 36, color: Colors.white),
                     ),
                   ),
                 ),
               ),
               const SizedBox(height: 24),
               Text(
-                _isRecording ? 'Recording in progress...' : 'Ready to Record',
+                _isRecording ? 'Recording in progress' : 'Start Recording',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: Color(0xFF17151F),
@@ -113,8 +130,8 @@ class _AlertsMainScreenState extends State<AlertsMainScreen> {
               const SizedBox(height: 10),
               Text(
                 _isRecording
-                    ? 'The screen is dimmed and silent for your\nprotection. Your activity is being logged securely.'
-                    : 'Click the START button below to begin recording\nand start background monitoring.',
+                    ? 'Recording is active for your protection.\nYour activity is being logged securely.'
+                    : 'Tap the record button to begin recording\nand start background monitoring.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: Color(0xFF5B5768),
@@ -145,39 +162,24 @@ class _AlertsMainScreenState extends State<AlertsMainScreen> {
                   Icon(Icons.verified_user_outlined,
                       size: 14, color: Color(0xFF868094)),
                   SizedBox(width: 8),
-                  Text(
-                    'Emergency contacts will be notified upon verification.',
-                    style: TextStyle(
-                      color: Color(0xFF868094),
-                      fontSize: 14,
+                  Flexible(
+                    child: Text(
+                      'Emergency contacts will be notified upon verification.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Color(0xFF868094),
+                        fontSize: 14,
+                      ),
                     ),
                   ),
                 ],
-              ),
-              const SizedBox(height: 22),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(
-                  3,
-                  (index) => Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    width: 7,
-                    height: 7,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: index == 1
-                          ? const Color(0xFFB3ACC7)
-                          : const Color(0xFFD8D3E8),
-                    ),
-                  ),
-                ),
               ),
               const SizedBox(height: 30),
               SizedBox(
                 width: double.infinity,
                 height: 56,
                 child: ElevatedButton(
-                  onPressed: _isRecording ? _stopRecording : _startRecording,
+                  onPressed: _toggleRecording,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _isRecording
                         ? const Color(0xFFE05555)
@@ -192,7 +194,7 @@ class _AlertsMainScreenState extends State<AlertsMainScreen> {
                         .withOpacity(0.3),
                   ),
                   child: Text(
-                    _isRecording ? 'STOP' : 'START',
+                    _isRecording ? 'STOP RECORDING' : 'START RECORDING',
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
