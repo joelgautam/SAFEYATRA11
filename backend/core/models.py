@@ -194,6 +194,7 @@ class AudioSafetySession(TimeStampedModel):
     trip = models.ForeignKey(Trip, on_delete=models.SET_NULL, null=True, blank=True)
     status = models.CharField(max_length=30, default="recording")
     keyword_detected = models.CharField(max_length=80, blank=True)
+    recording_file = models.FileField(upload_to="voice_recordings/", blank=True)
     recording_url = models.URLField(blank=True)
     started_at = models.DateTimeField()
     ended_at = models.DateTimeField(null=True, blank=True)

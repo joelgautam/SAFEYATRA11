@@ -104,6 +104,8 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+MEDIA_URL = "media/"
+MEDIA_ROOT = BASE_DIR / "media"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 #ALLOWED_HOSTS = ["*"]
@@ -113,8 +115,17 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 #)
 CORS_ALLOWED_ORIGINS = env.list(
     "CORS_ALLOWED_ORIGINS",
-    default=["http://localhost:8000", "http://127.0.0.1:8000"],
+    default=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:53496",
+        "http://127.0.0.1:53496",
+    ],
 )
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^http://localhost:\d+$",
+    r"^http://127\.0\.0\.1:\d+$",
+]
 
 REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [

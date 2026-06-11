@@ -1,7 +1,10 @@
 import random
 
+from django.http import FileResponse, Http404
 from django.utils import timezone
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -180,6 +183,13 @@ class AlertViewSet(viewsets.ModelViewSet):
     queryset = Alert.objects.all()
     serializer_class = AlertSerializer
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user_id = self.request.query_params.get("user")
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        return queryset
+
 
 class AlertRecipientViewSet(viewsets.ModelViewSet):
     queryset = AlertRecipient.objects.all()
@@ -204,3 +214,118 @@ class FaqViewSet(viewsets.ModelViewSet):
 class AudioSafetySessionViewSet(viewsets.ModelViewSet):
     queryset = AudioSafetySession.objects.all()
     serializer_class = AudioSafetySessionSerializer
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user_id = self.request.query_params.get("user")
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        return queryset
+
+    @action(detail=False, methods=["post"], url_path="start-alert")
+    def start_alert(self, request):
+        user_id = request.data.get("user")
+        if not user_id:
+            return Response(
+                {"detail": "User is required before recording."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            user = UserProfile.objects.get(id=user_id)
+        except UserProfile.DoesNotExist:
+            return Response(
+                {"detail": "User not found. Please sign in again."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        now = timezone.now()
+        keyword = str(request.data.get("keyword_detected", "Voice alert")).strip()
+        session = AudioSafetySession.objects.create(
+            user=user,
+            status="recording",
+            keyword_detected=keyword,
+            started_at=now,
+        )
+        alert = Alert.objects.create(
+            user=user,
+            alert_type=Alert.AlertType.AUDIO_KEYWORD,
+            status=Alert.Status.SENT,
+            message="Voice safety alert started. Emergency contacts were notified.",
+            triggered_at=now,
+        )
+
+        guardians = GuardianContact.objects.filter(user=user, is_active=True)
+        recipients = [
+            AlertRecipient(
+                alert=alert,
+                guardian=guardian,
+                recipient_name=guardian.name,
+                recipient_phone=guardian.phone,
+                delivery_status="queued",
+                delivered_at=now,
+            )
+            for guardian in guardians
+        ]
+        AlertRecipient.objects.bulk_create(recipients)
+
+        return Response(
+            {
+                "detail": "Recording started and emergency contacts were queued.",
+                "session": AudioSafetySessionSerializer(
+                    session, context={"request": request}
+                ).data,
+                "alert": AlertSerializer(alert).data,
+                "recipients_notified": len(recipients),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=["post"], url_path="upload-recording")
+    def upload_recording(self, request, pk=None):
+        session = self.get_object()
+        recording = request.FILES.get("recording")
+        if recording is None:
+            return Response(
+                {"detail": "A voice recording file is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        session.recording_file = recording
+        session.recording_url = ""
+        session.status = "completed"
+        session.ended_at = timezone.now()
+        session.save(
+            update_fields=[
+                "recording_file",
+                "recording_url",
+                "status",
+                "ended_at",
+                "updated_at",
+            ]
+        )
+
+        return Response(
+            {
+                "detail": "Voice recording saved.",
+                "session": AudioSafetySessionSerializer(
+                    session, context={"request": request}
+                ).data,
+            }
+        )
+
+    @action(detail=True, methods=["get"], url_path="recording")
+    def recording(self, request, pk=None):
+        session = self.get_object()
+        if not session.recording_file:
+            raise Http404("Voice recording was not found.")
+
+        try:
+            return FileResponse(
+                session.recording_file.open("rb"),
+                as_attachment=False,
+                filename=session.recording_file.name.rsplit("/", 1)[-1],
+            )
+        except FileNotFoundError as exc:
+            raise Http404("Voice recording file is missing.") from exc

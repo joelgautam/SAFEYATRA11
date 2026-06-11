@@ -83,6 +83,15 @@ class FaqSerializer(serializers.ModelSerializer):
 
 
 class AudioSafetySessionSerializer(serializers.ModelSerializer):
+    recording_file_url = serializers.SerializerMethodField()
+
     class Meta:
         model = AudioSafetySession
         fields = "__all__"
+
+    def get_recording_file_url(self, obj):
+        if not obj.recording_file:
+            return ""
+        request = self.context.get("request")
+        url = f"/api/audio-sessions/{obj.id}/recording/"
+        return request.build_absolute_uri(url) if request else url
