@@ -179,8 +179,8 @@ class _AlertsMainScreenState extends State<AlertsMainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final statusTitle =
-        _isRecording ? 'Recording in progress...' : 'Ready to Record';
+   final statusTitle =
+    _isRecording ? 'Recording in progress' : 'Start Recording';
     final statusText = _isRecording
         ? 'The screen is dimmed and silent for your protection. Your activity is being logged securely.'
         : 'Tap START to allow microphone access and alert your emergency contacts.';
@@ -265,7 +265,7 @@ class _AlertsMainScreenState extends State<AlertsMainScreen> {
                           ),
                         )
                       : Text(
-                          _isRecording ? 'STOP & SAVE' : 'START',
+                          _isRecording ? 'STOP & SAVE' : 'START RECORDING',
                           style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w800,
