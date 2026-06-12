@@ -12,6 +12,7 @@ import 'screens/guardian_sanctuary_screen.dart';
 import 'screens/guardian_contacts_screen.dart';
 import 'screens/alert_sent_screen.dart';
 import 'screens/faq_info_screen.dart';
+import 'services/app_session.dart';
 
 void main() {
   runApp(const SafeYatraApp());
@@ -31,7 +32,7 @@ class SafeYatraApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      initialRoute: '/otp',
+      home: const RootWrapper(),
       routes: {
         '/otp': (context) => const OtpLoginScreen(),
         '/verified': (context) => const VerifiedScreen(),
@@ -46,6 +47,28 @@ class SafeYatraApp extends StatelessWidget {
         '/guardian-contacts': (context) => const GuardianContactsScreen(),
         '/alert-sent': (context) => const AlertSentScreen(),
         '/faq-info': (context) => const FaqInfoScreen(),
+      },
+    );
+  }
+}
+
+class RootWrapper extends StatelessWidget {
+  const RootWrapper({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Map<String, String>>(
+      future: AppSession.loadUser(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasData && snapshot.data!['id']!.isNotEmpty) {
+          return const HomeScreen();
+        }
+        return const OtpLoginScreen();
       },
     );
   }

@@ -33,6 +33,7 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
       List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
   final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
   final TextEditingController _phoneController =
       TextEditingController(text: '+977 ');
   final FocusNode _phoneFocusNode = FocusNode();
@@ -86,11 +87,24 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
     }
   }
 
-  Future<void> _requestOtp() async {
-    final phone = _phoneController.text.trim();
-    final fullName = _nameController.text.trim();
+  String _normalizePhone(String phone) {
+    // Keep only digits and a leading '+'
+    final digitsOnly = phone.replaceAll(RegExp(r'[^\d+]'), '');
+    // Ensure '+' is only at the start
+    if (digitsOnly.startsWith('+')) {
+      return '+' + digitsOnly.substring(1).replaceAll('+', '');
+    }
+    return digitsOnly.replaceAll('+', '');
+  }
 
-    if (phone.length < 8) {
+  Future<void> _requestOtp() async {
+    final rawPhone = _phoneController.text.trim();
+    final fullName = _nameController.text.trim();
+    final email = _emailController.text.trim();
+
+    final phone = _normalizePhone(rawPhone);
+
+    if (phone.length < 7) {
       _showSnack('Please enter a valid phone number.');
       return;
     }
@@ -104,6 +118,7 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
         body: jsonEncode({
           'phone': phone,
           'full_name': fullName,
+          'email': email,
         }),
       );
 
@@ -122,10 +137,13 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
       });
       _startTimer();
       _focusNodes[0].requestFocus();
-      _showSnack('Dev OTP: $_lastDevOtp');
-    } catch (_) {
-      _showSnack(
-          'Could not reach backend. Check Django is running on port 8000.');
+      if (_lastDevOtp != null) {
+        _showSnack('Dev OTP: $_lastDevOtp');
+      } else {
+        _showSnack('OTP sent to $phone');
+      }
+    } catch (e) {
+      _showSnack('Connection error: ${e.toString()}');
     } finally {
       if (mounted) setState(() => _isRequestingOtp = false);
     }
@@ -136,7 +154,10 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
       _showSnack('Request an OTP first.');
       return;
     }
-    if (!_isOtpComplete) return;
+    if (!_isOtpComplete) {
+      _showSnack('Please enter the 6-digit code.');
+      return;
+    }
 
     setState(() => _isVerifying = true);
 
@@ -145,7 +166,7 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
         Uri.parse('${AppSession.apiBaseUrl}/auth/verify-otp/'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'phone': _phoneController.text.trim(),
+          'phone': _normalizePhone(_phoneController.text.trim()),
           'code': _fullOtp,
         }),
       );
@@ -161,8 +182,8 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/verified');
       }
-    } catch (_) {
-      _showSnack('Could not verify OTP. Check backend connection.');
+    } catch (e) {
+      _showSnack('Verification failed: ${e.toString()}');
     } finally {
       if (mounted) setState(() => _isVerifying = false);
     }
@@ -171,6 +192,7 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
   @override
   void dispose() {
     _nameController.dispose();
+    _emailController.dispose();
     _phoneController.dispose();
     _phoneFocusNode.dispose();
     for (final c in _controllers) {
@@ -242,6 +264,23 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
                       textCapitalization: TextCapitalization.words,
                       decoration: InputDecoration(
                         labelText: 'Full name',
+                        prefixIcon: const Icon(Icons.person_outline, size: 20),
+                        filled: true,
+                        fillColor: SYColors.lavenderSoft,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    TextField(
+                      controller: _emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: InputDecoration(
+                        labelText: 'Email (optional)',
+                        prefixIcon: const Icon(Icons.email_outlined, size: 20),
                         filled: true,
                         fillColor: SYColors.lavenderSoft,
                         border: OutlineInputBorder(

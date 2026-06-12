@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../services/app_session.dart';
+import '../services/live_location.dart';
+import '../services/trip_monitoring_api.dart';
+import '../widgets/maptiler_live_map.dart';
+
 class TripSetupScreen extends StatefulWidget {
   const TripSetupScreen({super.key});
 
@@ -13,6 +18,7 @@ class _TripSetupScreenState extends State<TripSetupScreen>
   final _destController = TextEditingController(text: 'Patan Durbar Square');
   bool _isPassiveActivated = false;
   bool _isButtonPressed = false;
+  bool _isStartingPassive = false;
   int _selectedNavIndex = 1;
 
   late AnimationController _pulseController;
@@ -81,6 +87,58 @@ class _TripSetupScreenState extends State<TripSetupScreen>
     );
   }
 
+  Future<void> _activatePassiveMode() async {
+    if (_isStartingPassive) return;
+
+    setState(() {
+      _isButtonPressed = false;
+      _isStartingPassive = true;
+    });
+
+    try {
+      final user = await AppSession.loadUser();
+      final userId = user['id'] ?? '';
+      if (userId.isEmpty) {
+        _showSnack('Please sign up again before starting passive mode.');
+        return;
+      }
+
+      LiveLocation? location;
+      try {
+        location = await LiveLocationService().current();
+      } catch (_) {
+        location = null;
+      }
+
+      final started = await TripMonitoringApi.startPassiveTrip(
+        userId: userId,
+        startLabel: _startController.text.trim(),
+        destinationLabel: _destController.text.trim(),
+        startLocation: location,
+      );
+      await AppSession.saveActiveTripId(started.tripId);
+
+      if (!mounted) return;
+      setState(() => _isPassiveActivated = true);
+      _showSnack(
+        'Passive monitoring started. ${started.guardiansNotified} guardians queued.',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 450));
+      if (mounted) Navigator.pushNamed(context, '/passive');
+    } catch (_) {
+      _showSnack('Could not start passive mode. Check backend connection.');
+    } finally {
+      if (mounted) setState(() => _isStartingPassive = false);
+    }
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
@@ -102,19 +160,11 @@ class _TripSetupScreenState extends State<TripSetupScreen>
               child: SizedBox(
                 width: double.infinity,
                 height: screenHeight * 0.52,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Image.asset(
-                      'assets/kathmandu_map.png',
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Container(
-                        color: const Color(0xFFD8E8C8),
-                        child: CustomPaint(painter: _MapBgPainter()),
-                      ),
-                    ),
-                    CustomPaint(painter: _RoutePainter()),
-                  ],
+                child: MapTilerLiveMap(
+                  centerLatitude: 27.7172,
+                  centerLongitude: 85.324,
+                  zoom: 13,
+                  overlay: CustomPaint(painter: _RoutePainter()),
                 ),
               ),
             ),
@@ -317,18 +367,7 @@ class _TripSetupScreenState extends State<TripSetupScreen>
                           GestureDetector(
                             onTapDown: (_) =>
                                 setState(() => _isButtonPressed = true),
-                            onTapUp: (_) {
-                              setState(() {
-                                _isButtonPressed = false;
-                                _isPassiveActivated = true;
-                              });
-                              Future.delayed(const Duration(milliseconds: 600),
-                                  () {
-                                if (mounted) {
-                                  Navigator.pushNamed(context, '/passive');
-                                }
-                              });
-                            },
+                            onTapUp: (_) => _activatePassiveMode(),
                             onTapCancel: () =>
                                 setState(() => _isButtonPressed = false),
                             child: AnimatedScale(
@@ -358,7 +397,9 @@ class _TripSetupScreenState extends State<TripSetupScreen>
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Icon(
-                                      _isPassiveActivated
+                                      _isStartingPassive
+                                          ? Icons.sync
+                                          : _isPassiveActivated
                                           ? Icons.check_circle
                                           : Icons.shield,
                                       color: Colors.white,
@@ -366,7 +407,9 @@ class _TripSetupScreenState extends State<TripSetupScreen>
                                     ),
                                     const SizedBox(width: 10),
                                     Text(
-                                      _isPassiveActivated
+                                      _isStartingPassive
+                                          ? 'Starting Passive Mode...'
+                                          : _isPassiveActivated
                                           ? 'Monitoring ON — Tap to Stop'
                                           : 'Activate Passive Mode',
                                       style: const TextStyle(
@@ -607,38 +650,6 @@ class _RouteInputCard extends StatelessWidget {
 }
 
 // ── Map Background Painter ─────────────────────────────────────────────────
-class _MapBgPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height),
-        Paint()..color = const Color(0xFFD8E8C8));
-    final road = Paint()
-      ..color = const Color(0xFFC8D8B8)
-      ..strokeWidth = 2;
-    final main = Paint()
-      ..color = const Color(0xFFF5C842)
-      ..strokeWidth = 7;
-    final hw = Paint()
-      ..color = const Color(0xFFE8873A)
-      ..strokeWidth = 10;
-    for (int i = 1; i <= 8; i++) {
-      canvas.drawLine(Offset(0, size.height * i / 9),
-          Offset(size.width, size.height * i / 9), road);
-      canvas.drawLine(Offset(size.width * i / 9, 0),
-          Offset(size.width * i / 9, size.height), road);
-    }
-    canvas.drawLine(Offset(size.width * 0.15, 0),
-        Offset(size.width * 0.22, size.height), hw);
-    canvas.drawLine(Offset(0, size.height * 0.4),
-        Offset(size.width, size.height * 0.48), main);
-    canvas.drawLine(Offset(0, size.height * 0.65),
-        Offset(size.width, size.height * 0.70), main);
-  }
-
-  @override
-  bool shouldRepaint(_) => false;
-}
-
 // ── Route Painter ──────────────────────────────────────────────────────────
 class _RoutePainter extends CustomPainter {
   @override

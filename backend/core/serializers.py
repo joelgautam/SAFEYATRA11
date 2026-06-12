@@ -40,6 +40,28 @@ class TripSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class TripStatusSerializer(serializers.ModelSerializer):
+    latest_ping = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Trip
+        fields = [
+            "id",
+            "status",
+            "passive_mode_enabled",
+            "safe_corridor_meters",
+            "started_at",
+            "completed_at",
+            "latest_ping",
+        ]
+
+    def get_latest_ping(self, obj):
+        ping = obj.location_pings.order_by("-recorded_at").first()
+        if ping is None:
+            return None
+        return LocationPingSerializer(ping).data
+
+
 class LocationPingSerializer(serializers.ModelSerializer):
     class Meta:
         model = LocationPing
