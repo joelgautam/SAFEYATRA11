@@ -1,5 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../services/app_session.dart';
+import '../services/live_location.dart';
+import '../services/location_suggestions.dart';
+import '../services/trip_monitoring_api.dart';
+import '../widgets/maptiler_live_map.dart';
+
 class TripSetupScreen extends StatefulWidget {
   const TripSetupScreen({super.key});
 
@@ -13,7 +19,14 @@ class _TripSetupScreenState extends State<TripSetupScreen>
   final _destController = TextEditingController(text: 'Patan Durbar Square');
   bool _isPassiveActivated = false;
   bool _isButtonPressed = false;
+  bool _isStartingPassive = false;
+  bool _isLocating = false;
   int _selectedNavIndex = 1;
+  LiveLocation? _currentLocation;
+  LiveLocation? _startLocation;
+  LiveLocation? _destinationLocation;
+  List<PredefinedRoute> _safeRoutes = [];
+  PredefinedRoute? _selectedRoute;
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -30,6 +43,18 @@ class _TripSetupScreenState extends State<TripSetupScreen>
     _pulseAnimation = Tween<double>(begin: 0.75, end: 1.0).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+    _startLocation = const LiveLocation(latitude: 27.7153, longitude: 85.3123);
+    _destinationLocation =
+        const LiveLocation(latitude: 27.6726, longitude: 85.3241);
+    _loadCurrentLocation();
+    _loadSafeRoutes();
+  }
+
+  Future<void> _loadSafeRoutes() async {
+    try {
+      final routes = await TripMonitoringApi.getSafeRoutes();
+      if (mounted) setState(() => _safeRoutes = routes);
+    } catch (_) {}
   }
 
   @override
@@ -81,9 +106,118 @@ class _TripSetupScreenState extends State<TripSetupScreen>
     );
   }
 
+  Future<void> _loadCurrentLocation({bool showSnack = false}) async {
+    if (_isLocating) return;
+    setState(() => _isLocating = true);
+    try {
+      final location = await LiveLocationService().current();
+      if (!mounted) return;
+      setState(() {
+        _currentLocation = location;
+        _startLocation = location;
+        _startController.text = 'Current location';
+        // Reset map scale to default when pinning
+        _scale = 1.0;
+        _mapController.value = Matrix4.identity();
+      });
+      if (showSnack) {
+        _showSnack('Your location pinned on the map.');
+      }
+    } catch (_) {
+      if (showSnack) {
+        _showSnack('Allow location permission to use your current GPS point.');
+      }
+    } finally {
+      if (mounted) setState(() => _isLocating = false);
+    }
+  }
+
+  Future<void> _openLocationPicker({required bool isStart}) async {
+    final selected = await showModalBottomSheet<LocationSuggestion>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _RouteSuggestionSheet(
+        title: isStart ? 'Choose pickup point' : 'Choose destination',
+        initialQuery: isStart ? _startController.text : _destController.text,
+        origin: _currentLocation,
+      ),
+    );
+    if (selected == null || !mounted) return;
+
+    setState(() {
+      final selectedLocation = LiveLocation(
+        latitude: selected.latitude,
+        longitude: selected.longitude,
+      );
+      if (isStart) {
+        _startController.text = selected.label;
+        _startLocation = selectedLocation;
+      } else {
+        _destController.text = selected.label;
+        _destinationLocation = selectedLocation;
+      }
+    });
+  }
+
+  Future<void> _activatePassiveMode() async {
+    if (_isStartingPassive) return;
+
+    setState(() {
+      _isButtonPressed = false;
+      _isStartingPassive = true;
+    });
+
+    try {
+      final user = await AppSession.loadUser();
+      final userId = user['id'] ?? '';
+      if (userId.isEmpty) {
+        _showSnack('Please sign up again before starting passive mode.');
+        return;
+      }
+
+      LiveLocation? location;
+      try {
+        location = _startLocation ?? await LiveLocationService().current();
+      } catch (_) {
+        location = _startLocation;
+      }
+
+      final started = await TripMonitoringApi.startPassiveTrip(
+        userId: userId,
+        startLabel: _startController.text.trim(),
+        destinationLabel: _destController.text.trim(),
+        startLocation: location,
+        destinationLocation: _destinationLocation,
+        predefinedRouteId: _selectedRoute?.id,
+      );
+      await AppSession.saveActiveTripId(started.tripId);
+
+      if (!mounted) return;
+      setState(() => _isPassiveActivated = true);
+      _showSnack(
+        'Passive monitoring started. ${started.guardiansNotified} guardians queued.',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 450));
+      if (mounted) Navigator.pushNamed(context, '/passive');
+    } catch (_) {
+      _showSnack('Could not start passive mode. Check backend connection.');
+    } finally {
+      if (mounted) setState(() => _isStartingPassive = false);
+    }
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
+    final mapCenter = _currentLocation ?? _startLocation;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -102,19 +236,15 @@ class _TripSetupScreenState extends State<TripSetupScreen>
               child: SizedBox(
                 width: double.infinity,
                 height: screenHeight * 0.52,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Image.asset(
-                      'assets/kathmandu_map.png',
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Container(
-                        color: const Color(0xFFD8E8C8),
-                        child: CustomPaint(painter: _MapBgPainter()),
-                      ),
+                child: MapTilerLiveMap(
+                  centerLatitude: mapCenter?.latitude ?? 27.7172,
+                  centerLongitude: mapCenter?.longitude ?? 85.324,
+                  zoom: 13,
+                  overlay: CustomPaint(
+                    painter: _RoutePainter(
+                      hasCurrentLocation: _currentLocation != null,
                     ),
-                    CustomPaint(painter: _RoutePainter()),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -211,6 +341,11 @@ class _TripSetupScreenState extends State<TripSetupScreen>
             top: screenHeight * 0.32,
             child: Column(
               children: [
+                _MapButton(
+                  icon: _isLocating ? Icons.sync : Icons.my_location,
+                  onTap: () => _loadCurrentLocation(showSnack: true),
+                ),
+                const SizedBox(height: 4),
                 _MapButton(icon: Icons.add, onTap: _zoomIn),
                 const SizedBox(height: 4),
                 _MapButton(icon: Icons.remove, onTap: _zoomOut),
@@ -278,14 +413,101 @@ class _TripSetupScreenState extends State<TripSetupScreen>
                             label: 'START POINT',
                             controller: _startController,
                             isDot: true,
+                            onTap: () => _openLocationPicker(isStart: true),
+                            onUseCurrentLocation: () =>
+                                _loadCurrentLocation(showSnack: true),
                           ),
                           const SizedBox(height: 10),
                           _RouteInputCard(
                             label: 'DESTINATION',
                             controller: _destController,
                             isDot: false,
+                            onTap: () => _openLocationPicker(isStart: false),
                           ),
                           const SizedBox(height: 14),
+
+                          // ── Safe Routes Selection ────────────────────
+                          if (_safeRoutes.isNotEmpty) ...[
+                            const Text('VERIFIED SAFE ROUTES',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF6B5FE6),
+                                  letterSpacing: 1.2,
+                                )),
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              height: 64,
+                              child: ListView.separated(
+                                scrollDirection: Axis.horizontal,
+                                physics: const BouncingScrollPhysics(),
+                                itemCount: _safeRoutes.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(width: 10),
+                                itemBuilder: (context, index) {
+                                  final route = _safeRoutes[index];
+                                  final isSelected =
+                                      _selectedRoute?.id == route.id;
+                                  return GestureDetector(
+                                    onTap: () {
+                                      setState(() {
+                                        _selectedRoute =
+                                            isSelected ? null : route;
+                                      });
+                                    },
+                                    child: Container(
+                                      width: 140,
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12),
+                                      decoration: BoxDecoration(
+                                        color: isSelected
+                                            ? const Color(0xFF6B5FE6)
+                                            : const Color(0xFFF5F3FF),
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(
+                                          color: isSelected
+                                              ? const Color(0xFF6B5FE6)
+                                              : const Color(0xFFE4DEFF),
+                                        ),
+                                      ),
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            route.name,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.bold,
+                                              color: isSelected
+                                                  ? Colors.white
+                                                  : const Color(0xFF1A1A2E),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            '${route.waypoints.length} checkpoints',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: isSelected
+                                                  ? Colors.white70
+                                                  : const Color(0xFF9B96B8),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                          ],
+
                           Container(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 12, vertical: 8),
@@ -317,18 +539,7 @@ class _TripSetupScreenState extends State<TripSetupScreen>
                           GestureDetector(
                             onTapDown: (_) =>
                                 setState(() => _isButtonPressed = true),
-                            onTapUp: (_) {
-                              setState(() {
-                                _isButtonPressed = false;
-                                _isPassiveActivated = true;
-                              });
-                              Future.delayed(const Duration(milliseconds: 600),
-                                  () {
-                                if (mounted) {
-                                  Navigator.pushNamed(context, '/passive');
-                                }
-                              });
-                            },
+                            onTapUp: (_) => _activatePassiveMode(),
                             onTapCancel: () =>
                                 setState(() => _isButtonPressed = false),
                             child: AnimatedScale(
@@ -358,17 +569,21 @@ class _TripSetupScreenState extends State<TripSetupScreen>
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Icon(
-                                      _isPassiveActivated
-                                          ? Icons.check_circle
-                                          : Icons.shield,
+                                      _isStartingPassive
+                                          ? Icons.sync
+                                          : _isPassiveActivated
+                                              ? Icons.check_circle
+                                              : Icons.shield,
                                       color: Colors.white,
                                       size: 20,
                                     ),
                                     const SizedBox(width: 10),
                                     Text(
-                                      _isPassiveActivated
-                                          ? 'Monitoring ON — Tap to Stop'
-                                          : 'Activate Passive Mode',
+                                      _isStartingPassive
+                                          ? 'Starting Passive Mode...'
+                                          : _isPassiveActivated
+                                              ? 'Monitoring ON — Tap to Stop'
+                                              : 'Activate Passive Mode',
                                       style: const TextStyle(
                                         fontSize: 15,
                                         fontWeight: FontWeight.bold,
@@ -524,82 +739,337 @@ class _RouteInputCard extends StatelessWidget {
   final String label;
   final TextEditingController controller;
   final bool isDot;
+  final VoidCallback onTap;
+  final VoidCallback? onUseCurrentLocation;
 
   const _RouteInputCard({
     required this.label,
     required this.controller,
     required this.isDot,
+    required this.onTap,
+    this.onUseCurrentLocation,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          isDot
-              ? Container(
-                  width: 18,
-                  height: 18,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Color(0xFF6B5FE6),
-                  ),
-                  child: const Center(
-                    child: SizedBox(
-                      width: 7,
-                      height: 7,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.white,
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            isDot
+                ? Container(
+                    width: 18,
+                    height: 18,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Color(0xFF6B5FE6),
+                    ),
+                    child: const Center(
+                      child: SizedBox(
+                        width: 7,
+                        height: 7,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                )
-              : const Icon(Icons.location_on,
-                  color: Color(0xFF6B5FE6), size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label,
+                  )
+                : const Icon(Icons.flag, color: Color(0xFF6B5FE6), size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label,
+                      style: const TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF9B96B8),
+                        letterSpacing: 1.2,
+                      )),
+                  const SizedBox(height: 3),
+                  Text(
+                    controller.text,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF9B96B8),
-                      letterSpacing: 1.2,
-                    )),
-                const SizedBox(height: 3),
-                TextField(
-                  controller: controller,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFF1A1A2E),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFF1A1A2E),
+                    ),
                   ),
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
+            if (onUseCurrentLocation != null)
+              IconButton(
+                tooltip: 'Use current location',
+                onPressed: onUseCurrentLocation,
+                icon: const Icon(Icons.my_location,
+                    color: Color(0xFF6B5FE6), size: 20),
+              )
+            else
+              const Icon(Icons.search, color: Color(0xFF9B96B8), size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RouteSuggestionSheet extends StatefulWidget {
+  final String title;
+  final String initialQuery;
+  final LiveLocation? origin;
+
+  const _RouteSuggestionSheet({
+    required this.title,
+    required this.initialQuery,
+    required this.origin,
+  });
+
+  @override
+  State<_RouteSuggestionSheet> createState() => _RouteSuggestionSheetState();
+}
+
+class _RouteSuggestionSheetState extends State<_RouteSuggestionSheet> {
+  late final TextEditingController _queryController;
+
+  @override
+  void initState() {
+    super.initState();
+    _queryController = TextEditingController(
+      text:
+          widget.initialQuery == 'Current location' ? '' : widget.initialQuery,
+    );
+  }
+
+  @override
+  void dispose() {
+    _queryController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final suggestions = searchLocationSuggestions(
+      _queryController.text,
+      origin: widget.origin,
+    );
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.82,
+      minChildSize: 0.55,
+      maxChildSize: 0.95,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.black,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
           ),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.title,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    style: IconButton.styleFrom(
+                      backgroundColor: const Color(0xFF555555),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF5F5F5F),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.search, color: Colors.white, size: 28),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: _queryController,
+                        autofocus: true,
+                        onChanged: (_) => setState(() {}),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        decoration: const InputDecoration(
+                          hintText: 'Search nearby places',
+                          hintStyle: TextStyle(color: Color(0xFFD0D0D0)),
+                          border: InputBorder.none,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  _SuggestionChip(label: 'Search Results', isSelected: true),
+                  const SizedBox(width: 10),
+                  _SuggestionChip(label: 'Suggested'),
+                  const SizedBox(width: 10),
+                  _SuggestionChip(label: 'Saved'),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: ListView.builder(
+                  controller: scrollController,
+                  itemCount: suggestions.length,
+                  itemBuilder: (context, index) {
+                    final item = suggestions[index];
+                    final distance = widget.origin == null
+                        ? null
+                        : distanceInKm(
+                            widget.origin!.latitude,
+                            widget.origin!.longitude,
+                            item.latitude,
+                            item.longitude,
+                          );
+                    return _SuggestionTile(
+                      item: item,
+                      distanceKm: distance,
+                      onTap: () => Navigator.pop(context, item),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SuggestionChip extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+
+  const _SuggestionChip({required this.label, this.isSelected = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+      decoration: BoxDecoration(
+        color: isSelected ? Colors.white : const Color(0xFF555555),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: isSelected ? Colors.black : Colors.white,
+          fontSize: 15,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _SuggestionTile extends StatelessWidget {
+  final LocationSuggestion item;
+  final double? distanceKm;
+  final VoidCallback onTap;
+
+  const _SuggestionTile({
+    required this.item,
+    required this.distanceKm,
+    required this.onTap,
+  });
+
+  IconData _getIconFor(String name) {
+    final n = name.toLowerCase();
+    if (n.contains('airport')) return Icons.airplanemode_active;
+    if (n.contains('durbar') || n.contains('square')) return Icons.account_balance;
+    if (n.contains('stupa') || n.contains('temple')) return Icons.temple_buddhist;
+    if (n.contains('mall')) return Icons.shopping_bag;
+    if (n.contains('college') || n.contains('school')) return Icons.school;
+    if (n.contains('bus')) return Icons.directions_bus;
+    return Icons.location_on_outlined;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      onTap: onTap,
+      contentPadding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+      leading: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: const Color(0xFF333333),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(_getIconFor(item.name), color: Colors.white, size: 24),
+      ),
+      title: Text(
+        item.name,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 17,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      subtitle: Text(
+        item.address,
+        style: const TextStyle(color: Color(0xFFB0B0B0), fontSize: 13),
+      ),
+      trailing: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (distanceKm != null)
+            Text(
+              '${distanceKm!.toStringAsFixed(1)}km',
+              style: const TextStyle(
+                color: Color(0xFF6B5FE6),
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          const SizedBox(height: 4),
+          const Icon(Icons.chevron_right, color: Color(0xFF555555), size: 18),
         ],
       ),
     );
@@ -607,40 +1077,12 @@ class _RouteInputCard extends StatelessWidget {
 }
 
 // ── Map Background Painter ─────────────────────────────────────────────────
-class _MapBgPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height),
-        Paint()..color = const Color(0xFFD8E8C8));
-    final road = Paint()
-      ..color = const Color(0xFFC8D8B8)
-      ..strokeWidth = 2;
-    final main = Paint()
-      ..color = const Color(0xFFF5C842)
-      ..strokeWidth = 7;
-    final hw = Paint()
-      ..color = const Color(0xFFE8873A)
-      ..strokeWidth = 10;
-    for (int i = 1; i <= 8; i++) {
-      canvas.drawLine(Offset(0, size.height * i / 9),
-          Offset(size.width, size.height * i / 9), road);
-      canvas.drawLine(Offset(size.width * i / 9, 0),
-          Offset(size.width * i / 9, size.height), road);
-    }
-    canvas.drawLine(Offset(size.width * 0.15, 0),
-        Offset(size.width * 0.22, size.height), hw);
-    canvas.drawLine(Offset(0, size.height * 0.4),
-        Offset(size.width, size.height * 0.48), main);
-    canvas.drawLine(Offset(0, size.height * 0.65),
-        Offset(size.width, size.height * 0.70), main);
-  }
-
-  @override
-  bool shouldRepaint(_) => false;
-}
-
 // ── Route Painter ──────────────────────────────────────────────────────────
 class _RoutePainter extends CustomPainter {
+  final bool hasCurrentLocation;
+
+  const _RoutePainter({required this.hasCurrentLocation});
+
   @override
   void paint(Canvas canvas, Size size) {
     final sx = size.width * 0.42;
@@ -670,6 +1112,17 @@ class _RoutePainter extends CustomPainter {
     canvas.drawCircle(
         Offset(ex, ey), 10, Paint()..color = const Color(0xFF6B5FE6));
     canvas.drawCircle(Offset(ex, ey), 4, Paint()..color = Colors.white);
+
+    if (hasCurrentLocation) {
+      final current = Offset(size.width * 0.50, size.height * 0.50);
+      canvas.drawCircle(
+        current,
+        22,
+        Paint()..color = const Color(0xFF2196F3).withOpacity(0.22),
+      );
+      canvas.drawCircle(current, 10, Paint()..color = Colors.white);
+      canvas.drawCircle(current, 7, Paint()..color = const Color(0xFF2196F3));
+    }
   }
 
   @override

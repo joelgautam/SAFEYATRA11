@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
+import '../services/app_session.dart';
+import '../services/live_location.dart';
+import '../services/trip_monitoring_api.dart';
+
 class DeviationAlertScreen extends StatefulWidget {
   const DeviationAlertScreen({super.key});
 
@@ -13,6 +17,8 @@ class _DeviationAlertScreenState extends State<DeviationAlertScreen>
     with SingleTickerProviderStateMixin {
   int _secondsLeft = 8;
   Timer? _countdownTimer;
+  String _activeTripId = '';
+  bool _isSubmitting = false;
 
   late AnimationController _circleController;
   late Animation<double> _circleAnimation;
@@ -30,6 +36,7 @@ class _DeviationAlertScreenState extends State<DeviationAlertScreen>
       CurvedAnimation(parent: _circleController, curve: Curves.linear),
     );
     _circleController.forward();
+    _loadActiveTrip();
 
     // Countdown timer
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
@@ -53,23 +60,80 @@ class _DeviationAlertScreenState extends State<DeviationAlertScreen>
   void _imSafe() {
     _countdownTimer?.cancel();
     _circleController.stop();
-    if (Navigator.canPop(context)) {
-      Navigator.pop(context);
-      return;
-    }
-    Navigator.pushReplacementNamed(context, '/passive');
+    _markTripSafe();
   }
 
   void _needHelp() {
     _countdownTimer?.cancel();
     _circleController.stop();
-    Navigator.pushReplacementNamed(context, '/guardian');
+    _sendDeviationAlert();
   }
 
   void _sendAutoAlert() {
-    if (mounted) {
-      Navigator.pushReplacementNamed(context, '/alert-sent');
+    _sendDeviationAlert(autoNavigate: true);
+  }
+
+  Future<void> _loadActiveTrip() async {
+    final tripId = await AppSession.loadActiveTripId();
+    if (mounted) setState(() => _activeTripId = tripId);
+  }
+
+  Future<LiveLocation?> _tryCurrentLocation() async {
+    try {
+      return await LiveLocationService().current();
+    } catch (_) {
+      return null;
     }
+  }
+
+  Future<void> _markTripSafe() async {
+    final tripId = _activeTripId;
+    if (tripId.isEmpty || _isSubmitting) {
+      if (mounted) Navigator.pushReplacementNamed(context, '/passive');
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+    try {
+      await TripMonitoringApi.markSafe(tripId);
+      if (mounted) Navigator.pushReplacementNamed(context, '/home');
+    } catch (_) {
+      _showSnack('Could not mark trip safe. Check backend connection.');
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  Future<void> _sendDeviationAlert({bool autoNavigate = false}) async {
+    final tripId = _activeTripId;
+    if (tripId.isEmpty || _isSubmitting) {
+      if (mounted) Navigator.pushReplacementNamed(context, '/guardian');
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+    try {
+      await TripMonitoringApi.sendDeviationAlert(
+        tripId: tripId,
+        location: await _tryCurrentLocation(),
+      );
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(
+        context,
+        autoNavigate ? '/alert-sent' : '/guardian',
+      );
+    } catch (_) {
+      _showSnack('Could not send emergency alert. Check backend connection.');
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
   }
 
   @override

@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 
+import '../services/app_session.dart';
+import '../services/live_location.dart';
+import '../services/trip_monitoring_api.dart';
+import '../widgets/maptiler_live_map.dart';
+
 class PassiveModeScreen extends StatefulWidget {
   const PassiveModeScreen({super.key});
 
@@ -20,6 +25,11 @@ class _PassiveModeScreenState extends State<PassiveModeScreen>
 
   // SOS button press
   bool _sosPressing = false;
+  bool _isSendingSos = false;
+  String _activeTripId = '';
+  int _guardiansNotified = 0;
+  LiveLocation? _currentLocation;
+  Timer? _locationPingTimer;
 
   @override
   void initState() {
@@ -43,18 +53,89 @@ class _PassiveModeScreenState extends State<PassiveModeScreen>
     );
 
 // ── Simulate deviation after 8 seconds ──
-    Future.delayed(const Duration(seconds: 8), () {
-      if (mounted) {
-        Navigator.pushNamed(context, '/deviation');
-      }
-    });
+    _loadActiveTripAndStartPings();
   }
 
   @override
   void dispose() {
     _pulseController.dispose();
     _routeController.dispose();
+    _locationPingTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _loadActiveTripAndStartPings() async {
+    final tripId = await AppSession.loadActiveTripId();
+    if (!mounted) return;
+    if (tripId.isEmpty) {
+      _showSnack('No active trip found. Start passive mode again.');
+      return;
+    }
+
+    setState(() => _activeTripId = tripId);
+    await _sendLocationPing();
+    _locationPingTimer?.cancel();
+    _locationPingTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _sendLocationPing(),
+    );
+  }
+
+  Future<void> _sendLocationPing() async {
+    final tripId = _activeTripId;
+    if (tripId.isEmpty) return;
+
+    try {
+      final location = await LiveLocationService().current();
+      final result = await TripMonitoringApi.sendPing(
+        tripId: tripId,
+        location: location,
+      );
+      if (!mounted) return;
+      setState(() => _currentLocation = location);
+      if (result.deviationDetected || result.tripStatus == 'deviation') {
+        Navigator.pushNamed(context, '/deviation');
+      }
+    } catch (_) {
+      if (mounted) {
+        _showSnack('Could not update live location.');
+      }
+    }
+  }
+
+  Future<void> _sendSosAlert() async {
+    final tripId = _activeTripId;
+    if (tripId.isEmpty || _isSendingSos) return;
+
+    setState(() => _isSendingSos = true);
+    try {
+      LiveLocation? location;
+      try {
+        location = await LiveLocationService().current();
+      } catch (_) {
+        location = null;
+      }
+
+      final result = await TripMonitoringApi.sendSos(
+        tripId: tripId,
+        location: location,
+      );
+      if (!mounted) return;
+      setState(() => _guardiansNotified = result.recipientsNotified);
+      _showSnack('SOS sent to $_guardiansNotified emergency contacts.');
+      Navigator.pushReplacementNamed(context, '/guardian');
+    } catch (_) {
+      _showSnack('Could not send SOS. Check backend connection.');
+    } finally {
+      if (mounted) setState(() => _isSendingSos = false);
+    }
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
   }
 
   @override
@@ -202,38 +283,19 @@ class _PassiveModeScreenState extends State<PassiveModeScreen>
                             height: 300,
                             child: Stack(
                               children: [
-                                // Dark purple map background
-                                Container(
-                                  width: double.infinity,
-                                  height: 300,
-                                  color: const Color(0xFF1A1035),
-                                  child: CustomPaint(
-                                    painter: _DarkMapPainter(
-                                      animation: _routeAnimation,
-                                    ),
+                                MapTilerLiveMap(
+                                  centerLatitude:
+                                      _currentLocation?.latitude ?? 27.7172,
+                                  centerLongitude:
+                                      _currentLocation?.longitude ?? 85.324,
+                                  zoom: 14,
+                                  darkTintOpacity: 0.55,
+                                  overlay: CustomPaint(
+                                    size: const Size(double.infinity, 300),
+                                    painter: _GlowRoutePainter(
+                                        animation: _routeAnimation),
                                   ),
                                 ),
-
-                                // Map image overlay with dark tint
-                                Image.asset(
-                                  'assets/kathmandu_map.png',
-                                  fit: BoxFit.cover,
-                                  width: double.infinity,
-                                  height: 300,
-                                  color:
-                                      const Color(0xFF2D1B69).withOpacity(0.75),
-                                  colorBlendMode: BlendMode.multiply,
-                                  errorBuilder: (context, error, stackTrace) =>
-                                      const SizedBox.shrink(),
-                                ),
-
-                                // Route overlay
-                                CustomPaint(
-                                  size: const Size(double.infinity, 300),
-                                  painter: _GlowRoutePainter(
-                                      animation: _routeAnimation),
-                                ),
-
                               ],
                             ),
                           ),
@@ -338,7 +400,10 @@ class _PassiveModeScreenState extends State<PassiveModeScreen>
                 style: TextStyle(color: Color(0xFF9B96B8))),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _sendSosAlert();
+            },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFE05555),
               shape: RoundedRectangleBorder(
@@ -354,37 +419,6 @@ class _PassiveModeScreenState extends State<PassiveModeScreen>
 }
 
 // ── Dark Map Painter ───────────────────────────────────────────────────────
-class _DarkMapPainter extends CustomPainter {
-  final Animation<double> animation;
-  _DarkMapPainter({required this.animation}) : super(repaint: animation);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final road = Paint()
-      ..color = const Color(0xFF6B4FA0).withOpacity(0.5)
-      ..strokeWidth = 2;
-    final main = Paint()
-      ..color = const Color(0xFFB060FF).withOpacity(0.7)
-      ..strokeWidth = 6;
-
-    for (int i = 1; i <= 8; i++) {
-      canvas.drawLine(Offset(0, size.height * i / 9),
-          Offset(size.width, size.height * i / 9), road);
-      canvas.drawLine(Offset(size.width * i / 9, 0),
-          Offset(size.width * i / 9, size.height), road);
-    }
-    canvas.drawLine(Offset(0, size.height * 0.4),
-        Offset(size.width, size.height * 0.48), main);
-    canvas.drawLine(Offset(size.width * 0.3, 0),
-        Offset(size.width * 0.35, size.height), main);
-    canvas.drawLine(Offset(size.width * 0.6, 0),
-        Offset(size.width * 0.65, size.height), main);
-  }
-
-  @override
-  bool shouldRepaint(_DarkMapPainter old) => true;
-}
-
 // ── Glow Route Painter ─────────────────────────────────────────────────────
 class _GlowRoutePainter extends CustomPainter {
   final Animation<double> animation;

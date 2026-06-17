@@ -1,4 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+
+import '../services/app_session.dart';
 import 'buttom_navigation_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -9,36 +14,233 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  String _profileName = 'Anjali Sharma';
-  String _profilePhone = '+977 98XXXXXXXX';
+  String _userId = '';
+  String _profileName = 'SafeYatra User';
+  String _profilePhone = '';
+  String _profileEmail = '';
+  String _bloodGroup = '';
+  int? _age;
+  bool _isLoading = true;
+  bool _isSaving = false;
 
-  void _showInfoSnackBar(BuildContext context, String message) {
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    final sessionUser = await AppSession.loadUser();
+    _userId = sessionUser['id'] ?? '';
+
+    if (_userId.isEmpty) {
+      setState(() => _isLoading = false);
+      return;
+    }
+
+    try {
+      final response = await http.get(
+        Uri.parse('${AppSession.apiBaseUrl}/users/$_userId/'),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        _applyUser(data);
+        await AppSession.saveUser(data);
+      }
+    } catch (_) {
+      _profileName = sessionUser['full_name']?.isNotEmpty == true
+          ? sessionUser['full_name']!
+          : 'SafeYatra User';
+      _profilePhone = sessionUser['phone'] ?? '';
+      _profileEmail = sessionUser['email'] ?? '';
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _applyUser(Map<String, dynamic> data) {
+    _userId = data['id']?.toString() ?? _userId;
+    _profileName = data['full_name']?.toString().isNotEmpty == true
+        ? data['full_name'].toString()
+        : 'SafeYatra User';
+    _profilePhone = data['phone']?.toString() ?? '';
+    _profileEmail = data['email']?.toString() ?? '';
+    _bloodGroup = data['blood_group']?.toString() ?? '';
+    _age = data['age'] is int ? data['age'] as int : null;
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
     );
   }
 
-  void _showDetailDialog({
-    required String title,
-    required IconData icon,
-    required List<String> details,
-  }) {
+  InputDecoration _fieldDecoration(String label) {
+    return InputDecoration(
+      labelText: label,
+      filled: true,
+      fillColor: const Color(0xFFF5F3FF),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide.none,
+      ),
+    );
+  }
+
+  Future<void> _saveProfile({
+    required String name,
+    required String phone,
+    required String email,
+    required String ageText,
+    required String bloodGroup,
+  }) async {
+    if (_userId.isEmpty) {
+      _showSnack('Please sign up again before editing your profile.');
+      return;
+    }
+    if (name.isEmpty || phone.isEmpty) {
+      _showSnack('Name and phone number are required.');
+      return;
+    }
+
+    final parsedAge = ageText.trim().isEmpty ? null : int.tryParse(ageText);
+    if (ageText.trim().isNotEmpty && parsedAge == null) {
+      _showSnack('Age must be a number.');
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    try {
+      final response = await http.patch(
+        Uri.parse('${AppSession.apiBaseUrl}/users/$_userId/'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'full_name': name,
+          'phone': phone,
+          'email': email,
+          'age': parsedAge,
+          'blood_group': bloodGroup,
+        }),
+      );
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode != 200) {
+        _showSnack(data.values.first.toString());
+        return;
+      }
+
+      setState(() => _applyUser(data));
+      await AppSession.saveUser(data);
+      if (mounted) Navigator.pop(context);
+      _showSnack('Profile saved to database.');
+    } catch (_) {
+      _showSnack('Could not save profile. Check backend connection.');
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  void _showEditProfileDialog() {
+    final nameController = TextEditingController(text: _profileName);
+    final phoneController = TextEditingController(text: _profilePhone);
+    final emailController = TextEditingController(text: _profileEmail);
+    final ageController = TextEditingController(text: _age?.toString() ?? '');
+    final bloodController = TextEditingController(text: _bloodGroup);
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: Row(
+        title: const Text(
+          'Edit Profile',
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF1A1A2E),
+          ),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                textCapitalization: TextCapitalization.words,
+                decoration: _fieldDecoration('Name'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: phoneController,
+                keyboardType: TextInputType.phone,
+                decoration: _fieldDecoration('Phone Number'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: emailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: _fieldDecoration('Email'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: ageController,
+                keyboardType: TextInputType.number,
+                decoration: _fieldDecoration('Age'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: bloodController,
+                textCapitalization: TextCapitalization.characters,
+                decoration: _fieldDecoration('Blood Group'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: _isSaving ? null : () => Navigator.pop(ctx),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Color(0xFF9B96B8)),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: _isSaving
+                ? null
+                : () => _saveProfile(
+                      name: nameController.text.trim(),
+                      phone: phoneController.text.trim(),
+                      email: emailController.text.trim(),
+                      ageText: ageController.text.trim(),
+                      bloodGroup: bloodController.text.trim(),
+                    ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF6B5FE6),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text('Save', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPersonalInfo() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Row(
           children: [
-            Icon(icon, color: const Color(0xFF6B5FE6), size: 22),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF1A1A2E),
-                ),
+            Icon(Icons.person_outline, color: Color(0xFF6B5FE6), size: 22),
+            SizedBox(width: 10),
+            Text(
+              'Personal Info',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF1A1A2E),
               ),
             ),
           ],
@@ -46,32 +248,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: details
-              .map(
-                (item) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('• ',
-                          style: TextStyle(
-                            fontSize: 15,
-                            color: Color(0xFF6B5FE6),
-                          )),
-                      Expanded(
-                        child: Text(
-                          item,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: Color(0xFF1A1A2E),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-              .toList(),
+          children: [
+            _InfoLine('Name', _profileName),
+            _InfoLine('Phone', _profilePhone),
+            _InfoLine('Email',
+                _profileEmail.isEmpty ? 'Not added yet' : _profileEmail),
+            _InfoLine('Age', _age?.toString() ?? 'Not added yet'),
+            _InfoLine('Blood Group',
+                _bloodGroup.isEmpty ? 'Not added yet' : _bloodGroup),
+          ],
         ),
         actions: [
           TextButton(
@@ -89,95 +274,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  void _showEditProfileDialog() {
-    final nameController = TextEditingController(text: _profileName);
-    final phoneController = TextEditingController(text: _profilePhone);
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text(
-          'Edit Profile',
-          style: TextStyle(
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF1A1A2E),
-          ),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameController,
-              textCapitalization: TextCapitalization.words,
-              decoration: InputDecoration(
-                labelText: 'Name',
-                filled: true,
-                fillColor: const Color(0xFFF5F3FF),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: phoneController,
-              keyboardType: TextInputType.phone,
-              decoration: InputDecoration(
-                labelText: 'Phone Number',
-                filled: true,
-                fillColor: const Color(0xFFF5F3FF),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(color: Color(0xFF9B96B8)),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final updatedName = nameController.text.trim();
-              final updatedPhone = phoneController.text.trim();
-
-              if (updatedName.isEmpty || updatedPhone.isEmpty) {
-                _showInfoSnackBar(
-                  context,
-                  'Please enter both name and phone number.',
-                );
-                return;
-              }
-
-              setState(() {
-                _profileName = updatedName;
-                _profilePhone = updatedPhone;
-              });
-              Navigator.pop(ctx);
-              _showInfoSnackBar(context, 'Profile updated successfully.');
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF6B5FE6),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            child: const Text(
-              'Save',
-              style: TextStyle(color: Colors.white),
-            ),
-          ),
-        ],
-      ),
-    );
+  Future<void> _signOut() async {
+    await AppSession.clear();
+    if (mounted) Navigator.pushReplacementNamed(context, '/otp');
   }
 
   @override
@@ -185,290 +284,182 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F3FF),
       body: SafeArea(
-        child: Column(
-          children: [
-            // Top Bar
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-              child: Row(
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
                 children: [
-                  GestureDetector(
-                    onTap: () => Navigator.pushReplacementNamed(context, '/home'),
-                    child: const Icon(Icons.arrow_back_ios,
-                        color: Color(0xFF1A1A2E), size: 22),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 16),
+                    child: Row(
+                      children: [
+                        GestureDetector(
+                          onTap: () =>
+                              Navigator.pushReplacementNamed(context, '/home'),
+                          child: const Icon(
+                            Icons.arrow_back_ios,
+                            color: Color(0xFF1A1A2E),
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Text(
+                          'Profile',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF1A1A2E),
+                          ),
+                        ),
+                        const Spacer(),
+                        GestureDetector(
+                          onTap: _showEditProfileDialog,
+                          child: const Icon(
+                            Icons.edit_outlined,
+                            color: Color(0xFF6B5FE6),
+                            size: 22,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  const SizedBox(width: 12),
-                  const Text('Profile',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF1A1A2E),
-                      )),
-                  const Spacer(),
-                  GestureDetector(
-                    onTap: _showEditProfileDialog,
-                    child: const Icon(Icons.edit_outlined,
-                        color: Color(0xFF6B5FE6), size: 22),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Column(
+                        children: [
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(24),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.06),
+                                  blurRadius: 12,
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              children: [
+                                Container(
+                                  width: 80,
+                                  height: 80,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: const Color(0xFFE4DEFF),
+                                    border: Border.all(
+                                      color: const Color(0xFF6B5FE6),
+                                      width: 3,
+                                    ),
+                                  ),
+                                  child: const Icon(
+                                    Icons.person,
+                                    color: Color(0xFF6B5FE6),
+                                    size: 40,
+                                  ),
+                                ),
+                                const SizedBox(height: 14),
+                                Text(
+                                  _profileName,
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF1A1A2E),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _profilePhone.isEmpty
+                                      ? 'No phone saved'
+                                      : _profilePhone,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: Color(0xFF9B96B8),
+                                  ),
+                                ),
+                                if (_profileEmail.isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _profileEmail,
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      color: Color(0xFF9B96B8),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          _SettingsSection(
+                            title: 'Account',
+                            items: [
+                              _SettingsItem(
+                                icon: Icons.person_outline,
+                                title: 'Personal Info',
+                                subtitle: 'Saved to database',
+                                onTap: _showPersonalInfo,
+                              ),
+                              _SettingsItem(
+                                icon: Icons.shield_outlined,
+                                title: 'Guardian Contacts',
+                                subtitle: 'Add trusted contacts',
+                                onTap: () => Navigator.pushNamed(
+                                  context,
+                                  '/guardian-contacts',
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          _SettingsSection(
+                            title: 'App',
+                            items: [
+                              _SettingsItem(
+                                icon: Icons.help_outline,
+                                title: 'Help & Support',
+                                subtitle: 'FAQs, contact, and emergency help',
+                                onTap: () =>
+                                    Navigator.pushNamed(context, '/faq-info'),
+                              ),
+                              _SettingsItem(
+                                icon: Icons.logout,
+                                title: 'Sign Out',
+                                subtitle: 'Log out from current account',
+                                isDestructive: true,
+                                onTap: _signOut,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 80),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),
-            ),
-
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Column(
-                  children: [
-                    // Profile Card
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.06),
-                            blurRadius: 12,
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        children: [
-                          GestureDetector(
-                            onTap: () => _showInfoSnackBar(
-                              context,
-                              'Profile photo tapped. Upload/change coming soon.',
-                            ),
-                            child: Container(
-                              width: 80,
-                              height: 80,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: const Color(0xFFE4DEFF),
-                                border: Border.all(
-                                  color: const Color(0xFF6B5FE6),
-                                  width: 3,
-                                ),
-                              ),
-                              child: const Icon(Icons.person,
-                                  color: Color(0xFF6B5FE6), size: 40),
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          Text(_profileName,
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w800,
-                                color: Color(0xFF1A1A2E),
-                              )),
-                          const SizedBox(height: 4),
-                          Text(_profilePhone,
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Color(0xFF9B96B8),
-                              )),
-                          const SizedBox(height: 16),
-                          const Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceAround,
-                            children: [
-                              _StatItem(value: '24', label: 'Safe Trips'),
-                              _StatItem(value: '3', label: 'Guardians'),
-                              _StatItem(value: '98%', label: 'Safety Score'),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    // Settings List
-                    _SettingsSection(
-                      title: 'Account',
-                      items: [
-                        _SettingsItem(
-                          icon: Icons.person_outline,
-                          title: 'Personal Info',
-                          subtitle: '$_profileName • anjali@safeyatra.app',
-                          onTap: () => _showDetailDialog(
-                            title: 'Personal Info',
-                            icon: Icons.person_outline,
-                            details: [
-                              'Name: $_profileName',
-                              'Phone: $_profilePhone',
-                              'Email: anjali@safeyatra.app',
-                              'Age: 26 • Blood Group: O+',
-                            ],
-                          ),
-                        ),
-                        _SettingsItem(
-                          icon: Icons.shield_outlined,
-                          title: 'Guardian Contacts',
-                          subtitle: '3 trusted guardians added',
-                          onTap: () =>
-                              Navigator.pushNamed(context, '/guardian-contacts'),
-                        ),
-                        _SettingsItem(
-                          icon: Icons.notifications_outlined,
-                          title: 'Notifications',
-                          subtitle: 'SOS alerts ON • Weekly reports ON',
-                          onTap: () => _showDetailDialog(
-                            title: 'Notifications',
-                            icon: Icons.notifications_outlined,
-                            details: const [
-                              'SOS alerts: Enabled',
-                              'Trip completion reports: Enabled',
-                              'Weekly safety summary: Every Sunday',
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    _SettingsSection(
-                      title: 'Safety',
-                      items: [
-                        _SettingsItem(
-                          icon: Icons.history,
-                          title: 'Trip History',
-                          subtitle: '24 trips • Last trip: Kathmandu to Bhaktapur',
-                          onTap: () => _showDetailDialog(
-                            title: 'Trip History',
-                            icon: Icons.history,
-                            details: const [
-                              '24 total completed trips',
-                              'Last trip: Kathmandu to Bhaktapur',
-                              'No safety incidents reported',
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    _SettingsSection(
-                      title: 'App',
-                      items: [
-                        _SettingsItem(
-                          icon: Icons.help_outline,
-                          title: 'Help & Support',
-                          subtitle: 'FAQs, contact, and emergency help',
-                          onTap: () => Navigator.pushNamed(context, '/faq-info'),
-                        ),
-                        _SettingsItem(
-                          icon: Icons.info_outline,
-                          title: 'About SafeYatra',
-                          subtitle: 'Version 1.0.0 • Privacy-first safety app',
-                          onTap: () => _showDetailDialog(
-                            title: 'About SafeYatra',
-                            icon: Icons.info_outline,
-                            details: const [
-                              'Version: 1.0.0',
-                              'SafeYatra is a privacy-first travel safety app.',
-                              'Built for safer daily travel in Nepal.',
-                            ],
-                          ),
-                        ),
-                        _SettingsItem(
-                          icon: Icons.logout,
-                          title: 'Sign Out',
-                          subtitle: 'Log out from current account',
-                          isDestructive: true,
-                          onTap: () =>
-                              Navigator.pushReplacementNamed(context, '/otp'),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 80),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
       bottomNavigationBar: const SafeYatraBottomNav(currentRoute: 'profile'),
     );
   }
-
-  Widget _buildBottomNav(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _NavItem(
-                icon: Icons.home_outlined,
-                label: 'HOME',
-                isSelected: false,
-                onTap: () => Navigator.pushReplacementNamed(context, '/home'),
-              ),
-              _NavItem(
-                icon: Icons.explore_outlined,
-                label: 'EXPLORE',
-                isSelected: false,
-                onTap: () => Navigator.pushReplacementNamed(context, '/explore'),
-              ),
-              _NavItem(
-                icon: Icons.warning_outlined,
-                label: 'ALERTS',
-                isSelected: false,
-                onTap: () => Navigator.pushReplacementNamed(context, '/alerts'),
-              ),
-              _NavItem(
-                icon: Icons.person_outline,
-                label: 'PROFILE',
-                isSelected: true,
-                onTap: () {},
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
-class _StatItem extends StatelessWidget {
-  final String value;
+class _InfoLine extends StatelessWidget {
   final String label;
+  final String value;
 
-  const _StatItem({required this.value, required this.label});
+  const _InfoLine(this.label, this.value);
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(value,
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF6B5FE6),
-            )),
-        const SizedBox(height: 2),
-        Text(label,
-            style: const TextStyle(
-              fontSize: 11,
-              color: Color(0xFF9B96B8),
-            )),
-      ],
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        '$label: $value',
+        style: const TextStyle(fontSize: 14, color: Color(0xFF1A1A2E)),
+      ),
     );
   }
 }
@@ -487,13 +478,15 @@ class _SettingsSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF9B96B8),
-              letterSpacing: 1,
-            )),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF9B96B8),
+            letterSpacing: 1,
+          ),
+        ),
         const SizedBox(height: 8),
         Container(
           decoration: BoxDecoration(
@@ -547,31 +540,28 @@ class _SettingsItem extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
           children: [
-            IconButton(
-              onPressed: onTap,
-              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-              padding: EdgeInsets.zero,
-              icon: Icon(
-                icon,
-                color: isDestructive
-                    ? const Color(0xFFE05555)
-                    : const Color(0xFF6B5FE6),
-                size: 22,
-              ),
+            Icon(
+              icon,
+              color: isDestructive
+                  ? const Color(0xFFE05555)
+                  : const Color(0xFF6B5FE6),
+              size: 22,
             ),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                        color: isDestructive
-                            ? const Color(0xFFE05555)
-                            : const Color(0xFF1A1A2E),
-                      )),
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      color: isDestructive
+                          ? const Color(0xFFE05555)
+                          : const Color(0xFF1A1A2E),
+                    ),
+                  ),
                   if (subtitle != null) ...[
                     const SizedBox(height: 2),
                     Text(
@@ -586,57 +576,13 @@ class _SettingsItem extends StatelessWidget {
               ),
             ),
             if (!isDestructive)
-              const Icon(Icons.arrow_forward_ios,
-                  color: Color(0xFF9B96B8), size: 14),
+              const Icon(
+                Icons.arrow_forward_ios,
+                color: Color(0xFF9B96B8),
+                size: 14,
+              ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _NavItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _NavItem({
-    required this.icon,
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          isSelected
-              ? Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFE4E4),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(icon, color: const Color(0xFFE05555), size: 20),
-                )
-              : Icon(icon, color: const Color(0xFF9B96B8), size: 22),
-          const SizedBox(height: 4),
-          Text(label,
-              style: TextStyle(
-                fontSize: 9,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                color: isSelected
-                    ? const Color(0xFFE05555)
-                    : const Color(0xFF9B96B8),
-                letterSpacing: 0.5,
-              )),
-        ],
       ),
     );
   }

@@ -1,4 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+
+import '../services/app_session.dart';
 import 'trip_detail_screen.dart';
 import 'buttom_navigation_screen.dart';
 
@@ -60,7 +65,8 @@ class HomeScreen extends StatelessWidget {
                             width: 8,
                             height: 8,
                             decoration: const BoxDecoration(
-                                shape: BoxShape.circle, color: Color(0xFFE05555)),
+                                shape: BoxShape.circle,
+                                color: Color(0xFFE05555)),
                           ),
                         ),
                       ],
@@ -179,70 +185,7 @@ class HomeScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 14),
 
-                    // Trip 1
-                    _TripCard(
-                      from: 'Thamel',
-                      to: 'Patan Durbar Square',
-                      date: 'Today, 4:30 PM',
-                      duration: '42 min',
-                      status: 'Safe',
-                      statusColor: const Color(0xFF4CAF50),
-                      onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => TripDetailScreen(
-                              from: 'Thamel',
-                              to: 'Patan Durbar Square',
-                              date: 'Today, 4:30 PM',
-                              status: 'Safe',
-                              statusColor: const Color(0xFF4CAF50),
-                            ),
-                          )),
-                    ),
-                    const SizedBox(height: 10),
-
-                    // Trip 2
-                    _TripCard(
-                      from: 'Boudhanath',
-                      to: 'Thamel',
-                      date: 'Yesterday, 7:15 PM',
-                      duration: '35 min',
-                      status: 'Safe',
-                      statusColor: const Color(0xFF4CAF50),
-                      onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => TripDetailScreen(
-                              from: 'Boudhanath',
-                              to: 'Thamel',
-                              date: 'Yesterday, 7:15 PM',
-                              status: 'Safe',
-                              statusColor: const Color(0xFF4CAF50),
-                            ),
-                          )),
-                    ),
-                    const SizedBox(height: 10),
-
-                    // Trip 3
-                    _TripCard(
-                      from: 'Lazimpat',
-                      to: 'Koteshwor',
-                      date: '2 days ago',
-                      duration: '58 min',
-                      status: 'Deviation',
-                      statusColor: const Color(0xFFE05555),
-                      onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => TripDetailScreen(
-                              from: 'Lazimpat',
-                              to: 'Koteshwor',
-                              date: '2 days ago',
-                              status: 'Deviation',
-                              statusColor: const Color(0xFFE05555),
-                            ),
-                          )),
-                    ),
+                    const _RecentTripsPanel(),
 
                     const SizedBox(height: 24),
 
@@ -273,6 +216,192 @@ class HomeScreen extends StatelessWidget {
         ),
       ),
       bottomNavigationBar: const SafeYatraBottomNav(currentRoute: 'home'),
+    );
+  }
+}
+
+class _RecentTripsPanel extends StatefulWidget {
+  const _RecentTripsPanel();
+
+  @override
+  State<_RecentTripsPanel> createState() => _RecentTripsPanelState();
+}
+
+class _RecentTripsPanelState extends State<_RecentTripsPanel> {
+  bool _isLoading = true;
+  final List<_TripHistoryItem> _trips = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTrips();
+  }
+
+  Future<void> _loadTrips() async {
+    final user = await AppSession.loadUser();
+    final userId = user['id'] ?? '';
+    if (userId.isEmpty) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
+
+    try {
+      final response = await http.get(
+        Uri.parse('${AppSession.apiBaseUrl}/trips/?user=$userId'),
+      );
+      if (response.statusCode != 200) {
+        throw StateError('Could not load trips.');
+      }
+      final decoded = jsonDecode(response.body);
+      final items = decoded is Map<String, dynamic>
+          ? decoded['results'] as List<dynamic>? ?? <dynamic>[]
+          : decoded as List<dynamic>;
+      final trips = items
+          .map(
+              (item) => _TripHistoryItem.fromJson(item as Map<String, dynamic>))
+          .toList();
+      if (mounted) {
+        setState(() {
+          _trips
+            ..clear()
+            ..addAll(trips);
+          _isLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 16),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_trips.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Text(
+          'No saved trips yet. Plan a new trip to start history.',
+          style: TextStyle(color: Color(0xFF9B96B8), fontSize: 13),
+        ),
+      );
+    }
+
+    return Column(
+      children: _trips.take(6).map((trip) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: _TripCard(
+            from: trip.from,
+            to: trip.to,
+            date: trip.dateLabel,
+            duration: trip.durationLabel,
+            status: trip.statusLabel,
+            statusColor: trip.statusColor,
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => TripDetailScreen(
+                  from: trip.from,
+                  to: trip.to,
+                  date: trip.dateLabel,
+                  status: trip.statusLabel,
+                  statusColor: trip.statusColor,
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+class _TripHistoryItem {
+  final String from;
+  final String to;
+  final String status;
+  final int? durationSeconds;
+  final DateTime? startedAt;
+
+  const _TripHistoryItem({
+    required this.from,
+    required this.to,
+    required this.status,
+    required this.durationSeconds,
+    required this.startedAt,
+  });
+
+  String get statusLabel {
+    switch (status) {
+      case 'active':
+        return 'Active';
+      case 'safe':
+        return 'Safe';
+      case 'deviation':
+        return 'Deviation';
+      case 'sos':
+        return 'SOS';
+      case 'cancelled':
+        return 'Cancelled';
+      default:
+        return 'Planned';
+    }
+  }
+
+  Color get statusColor {
+    switch (status) {
+      case 'safe':
+        return const Color(0xFF4CAF50);
+      case 'deviation':
+      case 'sos':
+        return const Color(0xFFE05555);
+      case 'active':
+        return const Color(0xFF6B5FE6);
+      default:
+        return const Color(0xFF9B96B8);
+    }
+  }
+
+  String get durationLabel {
+    final seconds = durationSeconds;
+    if (seconds == null || seconds <= 0) return 'Monitoring';
+    final minutes = (seconds / 60).round().clamp(1, 999);
+    return '$minutes min';
+  }
+
+  String get dateLabel {
+    final date = startedAt;
+    if (date == null) return 'Not started';
+    final local = date.toLocal();
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} $hour:$minute';
+  }
+
+  factory _TripHistoryItem.fromJson(Map<String, dynamic> json) {
+    return _TripHistoryItem(
+      from: json['start_label']?.toString().isNotEmpty == true
+          ? json['start_label'].toString()
+          : 'Current location',
+      to: json['destination_label']?.toString().isNotEmpty == true
+          ? json['destination_label'].toString()
+          : 'Destination',
+      status: json['status']?.toString() ?? 'planned',
+      durationSeconds: json['duration_seconds'] is int
+          ? json['duration_seconds'] as int
+          : int.tryParse(json['duration_seconds']?.toString() ?? ''),
+      startedAt: DateTime.tryParse(json['started_at']?.toString() ?? ''),
     );
   }
 }

@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+import '../services/app_session.dart';
 
 // ── SafeYatra Colors ───────────────────────────────────────────────────────
 class SYColors {
@@ -28,26 +32,30 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
   final List<TextEditingController> _controllers =
       List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
   final TextEditingController _phoneController =
       TextEditingController(text: '+977 ');
   final FocusNode _phoneFocusNode = FocusNode();
 
   int _secondsLeft = 30;
   bool _canResend = false;
+  bool _otpRequested = false;
+  bool _isRequestingOtp = false;
   bool _isVerifying = false;
+  String? _lastDevOtp;
   Timer? _timer;
 
   @override
   void initState() {
     super.initState();
-    _startTimer();
-    // Auto-focus first box
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _focusNodes[0].requestFocus();
+      _phoneFocusNode.requestFocus();
     });
   }
 
   void _startTimer() {
+    _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (_secondsLeft == 0) {
         t.cancel();
@@ -59,28 +67,132 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
   }
 
   void _resend() {
-    setState(() {
-      _secondsLeft = 30;
-      _canResend = false;
-    });
-    _startTimer();
+    _requestOtp();
   }
 
   String get _fullOtp => _controllers.map((c) => c.text).join();
 
   bool get _isOtpComplete => _fullOtp.length == 6;
 
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
+  }
+
+  void _clearOtpBoxes() {
+    for (final controller in _controllers) {
+      controller.clear();
+    }
+  }
+
+  String _normalizePhone(String phone) {
+    // Keep only digits and a leading '+'
+    final digitsOnly = phone.replaceAll(RegExp(r'[^\d+]'), '');
+    // Ensure '+' is only at the start
+    if (digitsOnly.startsWith('+')) {
+      return '+' + digitsOnly.substring(1).replaceAll('+', '');
+    }
+    return digitsOnly.replaceAll('+', '');
+  }
+
+  Future<void> _requestOtp() async {
+    final rawPhone = _phoneController.text.trim();
+    final fullName = _nameController.text.trim();
+    final email = _emailController.text.trim();
+
+    final phone = _normalizePhone(rawPhone);
+
+    if (phone.length < 7) {
+      _showSnack('Please enter a valid phone number.');
+      return;
+    }
+
+    setState(() => _isRequestingOtp = true);
+
+    try {
+      final response = await http.post(
+        Uri.parse('${AppSession.apiBaseUrl}/auth/request-otp/'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'phone': phone,
+          'full_name': fullName,
+          'email': email,
+        }),
+      );
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode != 201) {
+        _showSnack(data['detail']?.toString() ?? 'Could not generate OTP.');
+        return;
+      }
+
+      _lastDevOtp = data['dev_otp']?.toString();
+      _clearOtpBoxes();
+      setState(() {
+        _otpRequested = true;
+        _secondsLeft = 30;
+        _canResend = false;
+      });
+      _startTimer();
+      _focusNodes[0].requestFocus();
+      if (_lastDevOtp != null) {
+        _showSnack('Dev OTP: $_lastDevOtp');
+      } else {
+        _showSnack('OTP sent to $phone');
+      }
+    } catch (e) {
+      _showSnack('Connection error: ${e.toString()}');
+    } finally {
+      if (mounted) setState(() => _isRequestingOtp = false);
+    }
+  }
+
   void _verify() async {
-    if (!_isOtpComplete) return;
+    if (!_otpRequested) {
+      _showSnack('Request an OTP first.');
+      return;
+    }
+    if (!_isOtpComplete) {
+      _showSnack('Please enter the 6-digit code.');
+      return;
+    }
+
     setState(() => _isVerifying = true);
-    await Future.delayed(const Duration(milliseconds: 600));
-    if (mounted) {
-      Navigator.pushReplacementNamed(context, '/verified');
+
+    try {
+      final response = await http.post(
+        Uri.parse('${AppSession.apiBaseUrl}/auth/verify-otp/'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'phone': _normalizePhone(_phoneController.text.trim()),
+          'code': _fullOtp,
+        }),
+      );
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode != 200) {
+        _showSnack(data['detail']?.toString() ?? 'Invalid OTP.');
+        return;
+      }
+
+      await AppSession.saveUser(data['user'] as Map<String, dynamic>);
+
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/verified');
+      }
+    } catch (e) {
+      _showSnack('Verification failed: ${e.toString()}');
+    } finally {
+      if (mounted) setState(() => _isVerifying = false);
     }
   }
 
   @override
   void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
     _phoneController.dispose();
     _phoneFocusNode.dispose();
     for (final c in _controllers) {
@@ -111,7 +223,7 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
 
               // ── Title ──────────────────────────────────────────────────
               const Text(
-                'Verify Your Number',
+                'Sign Up With Phone',
                 style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.w800,
@@ -121,7 +233,7 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
               ),
               const SizedBox(height: 8),
               const Text(
-                'Enter 6-digit OTP sent to your phone',
+                'Generate a database OTP, then enter it below',
                 style: TextStyle(
                   fontSize: 14,
                   color: SYColors.textGrey,
@@ -147,11 +259,84 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
                 padding: const EdgeInsets.all(24),
                 child: Column(
                   children: [
+                    TextField(
+                      controller: _nameController,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: InputDecoration(
+                        labelText: 'Full name',
+                        prefixIcon: const Icon(Icons.person_outline, size: 20),
+                        filled: true,
+                        fillColor: SYColors.lavenderSoft,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    TextField(
+                      controller: _emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: InputDecoration(
+                        labelText: 'Email (optional)',
+                        prefixIcon: const Icon(Icons.email_outlined, size: 20),
+                        filled: true,
+                        fillColor: SYColors.lavenderSoft,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
                     // Phone row
                     _PhoneRow(
                       controller: _phoneController,
                       focusNode: _phoneFocusNode,
                     ),
+                    const SizedBox(height: 14),
+
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton(
+                        onPressed: _isRequestingOtp ? null : _requestOtp,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: SYColors.lavenderPrimary,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: _isRequestingOtp
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Text(_otpRequested
+                                ? 'Generate New OTP'
+                                : 'Generate OTP'),
+                      ),
+                    ),
+
+                    if (_lastDevOtp != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        'Testing OTP: $_lastDevOtp',
+                        style: const TextStyle(
+                          color: SYColors.lavenderDeep,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+
                     const SizedBox(height: 24),
 
                     // OTP boxes
@@ -182,7 +367,7 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
 
                     // Verify button
                     _VerifyButton(
-                      isComplete: _isOtpComplete,
+                      isComplete: _otpRequested && _isOtpComplete,
                       isVerifying: _isVerifying,
                       onTap: _verify,
                     ),
@@ -202,27 +387,35 @@ class _OtpLoginScreenState extends State<OtpLoginScreen>
                               ),
                             ),
                           )
-                        : Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.lock_outline,
-                                  size: 14, color: SYColors.textGrey),
-                              const SizedBox(width: 6),
-                              const Text(
-                                'Resend OTP in ',
+                        : _otpRequested
+                            ? Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.lock_outline,
+                                      size: 14, color: SYColors.textGrey),
+                                  const SizedBox(width: 6),
+                                  const Text(
+                                    'Resend OTP in ',
+                                    style: TextStyle(
+                                        fontSize: 13, color: SYColors.textGrey),
+                                  ),
+                                  Text(
+                                    '${_secondsLeft}s',
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: SYColors.lavenderPrimary,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : const Text(
+                                'No OTP sent yet',
                                 style: TextStyle(
-                                    fontSize: 13, color: SYColors.textGrey),
-                              ),
-                              Text(
-                                '${_secondsLeft}s',
-                                style: const TextStyle(
                                   fontSize: 13,
-                                  fontWeight: FontWeight.bold,
-                                  color: SYColors.lavenderPrimary,
+                                  color: SYColors.textGrey,
                                 ),
                               ),
-                            ],
-                          ),
                   ],
                 ),
               ),
