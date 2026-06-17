@@ -56,6 +56,20 @@ class GuardianContact(TimeStampedModel):
         ordering = ["priority", "created_at"]
 
 
+class PredefinedRoute(TimeStampedModel):
+    name = models.CharField(max_length=120)
+    description = models.TextField(blank=True)
+    # List of {"lat": 27.7, "lng": 85.3} points
+    waypoints = models.JSONField(default=list)
+    is_safe = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "predefined_routes"
+
+    def __str__(self):
+        return self.name
+
+
 class Trip(TimeStampedModel):
     class Status(models.TextChoices):
         PLANNED = "planned", "Planned"
@@ -76,6 +90,13 @@ class Trip(TimeStampedModel):
     passive_mode_enabled = models.BooleanField(default=False)
     safe_corridor_meters = models.PositiveIntegerField(default=150)
     planned_route = models.JSONField(default=dict, blank=True)
+    predefined_route = models.ForeignKey(
+        PredefinedRoute,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+    )
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     distance_meters = models.PositiveIntegerField(null=True, blank=True)

@@ -36,29 +36,41 @@ create table if not exists public.otp_codes (
   verified_at timestamptz,
   attempts smallint not null default 0,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+  create table if not exists public.safety_tips (
+  ...
+  );
 
-create table if not exists public.trips (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.user_profiles(id) on delete cascade,
-  start_label text not null,
-  destination_label text not null,
-  start_lat numeric(9,6),
-  start_lng numeric(9,6),
-  destination_lat numeric(9,6),
-  destination_lng numeric(9,6),
-  status text not null default 'planned' check (status in ('planned','active','safe','deviation','sos','cancelled')),
-  passive_mode_enabled boolean not null default false,
-  safe_corridor_meters integer not null default 150,
-  planned_route jsonb not null default '{}'::jsonb,
-  started_at timestamptz,
-  completed_at timestamptz,
-  distance_meters integer,
-  duration_seconds integer,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+  create table if not exists public.predefined_routes (
+    id uuid primary key default gen_random_uuid(),
+    name text not null,
+    description text default '',
+    waypoints jsonb not null default '[]'::jsonb,
+    is_safe boolean not null default true,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  );
+
+  create table if not exists public.trips (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null references public.user_profiles(id) on delete cascade,
+    start_label text not null,
+    destination_label text not null,
+    start_lat numeric(9,6),
+    start_lng numeric(9,6),
+    destination_lat numeric(9,6),
+    destination_lng numeric(9,6),
+    status text not null default 'planned' check (status in ('planned','active','safe','deviation','sos','cancelled')),
+    passive_mode_enabled boolean not null default false,
+    safe_corridor_meters integer not null default 150,
+    planned_route jsonb not null default '{}'::jsonb,
+    predefined_route_id uuid references public.predefined_routes(id) on delete set null,
+    started_at timestamptz,
+    completed_at timestamptz,
+    distance_meters integer,
+    duration_seconds integer,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  );
 
 create table if not exists public.location_pings (
   id uuid primary key default gen_random_uuid(),

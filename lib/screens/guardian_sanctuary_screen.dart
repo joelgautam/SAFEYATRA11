@@ -1,4 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+
+import '../services/app_session.dart';
 
 class GuardianSanctuaryScreen extends StatefulWidget {
   const GuardianSanctuaryScreen({super.key});
@@ -12,7 +17,9 @@ class _GuardianSanctuaryScreenState extends State<GuardianSanctuaryScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
+  final List<_SanctuaryGuardian> _guardians = [];
   bool _voiceShared = false;
+  bool _isLoadingGuardians = true;
 
   @override
   void initState() {
@@ -24,6 +31,7 @@ class _GuardianSanctuaryScreenState extends State<GuardianSanctuaryScreen>
     _pulseAnimation = Tween<double>(begin: 0.6, end: 1.0).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+    _loadGuardians();
   }
 
   @override
@@ -43,6 +51,46 @@ class _GuardianSanctuaryScreenState extends State<GuardianSanctuaryScreen>
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
+  }
+
+  Future<void> _loadGuardians() async {
+    final sessionUser = await AppSession.loadUser();
+    final userId = sessionUser['id'] ?? '';
+    if (userId.isEmpty) {
+      if (mounted) setState(() => _isLoadingGuardians = false);
+      return;
+    }
+
+    try {
+      final response = await http.get(
+        Uri.parse('${AppSession.apiBaseUrl}/guardian-contacts/?user=$userId'),
+      );
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        final items = decoded is Map<String, dynamic>
+            ? decoded['results'] as List<dynamic>
+            : decoded as List<dynamic>;
+        if (!mounted) return;
+        setState(() {
+          _guardians
+            ..clear()
+            ..addAll(items.map((item) {
+              return _SanctuaryGuardian.fromJson(item as Map<String, dynamic>);
+            }));
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not load guardian contacts.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingGuardians = false);
+    }
   }
 
   // ── Police SOS ───────────────────────────────────────────────────────────
@@ -79,6 +127,7 @@ class _GuardianSanctuaryScreenState extends State<GuardianSanctuaryScreen>
 
   // ── Call Guardians ───────────────────────────────────────────────────
   void _callGuardians() {
+    final guardians = _guardians;
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -95,11 +144,22 @@ class _GuardianSanctuaryScreenState extends State<GuardianSanctuaryScreen>
                     fontWeight: FontWeight.w800,
                     color: Color(0xFF1A1A2E))),
             const SizedBox(height: 16),
-            _CallRow(initial: 'M', name: 'Mom', phone: '+977 98XXXXXXXX'),
-            const SizedBox(height: 10),
-            _CallRow(initial: 'A', name: 'Anjali', phone: '+977 97XXXXXXXX'),
-            const SizedBox(height: 10),
-            _CallRow(initial: 'P', name: 'Priya', phone: '+977 96XXXXXXXX'),
+            if (guardians.isEmpty)
+              const Text(
+                'No guardian contacts saved yet.',
+                style: TextStyle(color: Color(0xFF9B96B8)),
+              )
+            else
+              ...guardians.map((guardian) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _CallRow(
+                    initial: guardian.initial,
+                    name: guardian.name,
+                    phone: guardian.phone,
+                  ),
+                );
+              }),
             const SizedBox(height: 20),
           ],
         ),
@@ -392,22 +452,45 @@ class _GuardianSanctuaryScreenState extends State<GuardianSanctuaryScreen>
                                   fontSize: 13, color: Color(0xFF9B96B8))),
                           const SizedBox(height: 16),
 
-                          // Guardian cards
-                          _GuardianCard(
-                            initial: 'A',
-                            name: 'Anjali',
-                            status: 'Viewing Live',
-                            statusColor: const Color(0xFF4CAF50),
-                            onCall: _callGuardians,
-                          ),
-                          const SizedBox(height: 10),
-                          _GuardianCard(
-                            initial: 'P',
-                            name: 'Priya',
-                            status: 'Notified',
-                            statusColor: const Color(0xFF9B96B8),
-                            onCall: _callGuardians,
-                          ),
+                          if (_isLoadingGuardians)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16),
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  color: Color(0xFF6B5FE6),
+                                ),
+                              ),
+                            )
+                          else if (_guardians.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 12),
+                              child: Text(
+                                'No guardian contacts saved yet.',
+                                style: TextStyle(
+                                  color: Color(0xFF9B96B8),
+                                  fontSize: 13,
+                                ),
+                              ),
+                            )
+                          else
+                            ..._guardians.asMap().entries.map((entry) {
+                              final index = entry.key;
+                              final guardian = entry.value;
+                              return Padding(
+                                padding: EdgeInsets.only(
+                                  bottom: index == _guardians.length - 1 ? 0 : 10,
+                                ),
+                                child: _GuardianCard(
+                                  initial: guardian.initial,
+                                  name: guardian.name,
+                                  status: index == 0 ? 'Viewing Live' : 'Notified',
+                                  statusColor: index == 0
+                                      ? const Color(0xFF4CAF50)
+                                      : const Color(0xFF9B96B8),
+                                  onCall: _callGuardians,
+                                ),
+                              );
+                            }),
 
                           const SizedBox(height: 20),
 
@@ -858,6 +941,31 @@ class _CallRow extends StatelessWidget {
 }
 
 // ── Response Tile ──────────────────────────────────────────────────────────
+class _SanctuaryGuardian {
+  final String id;
+  final String name;
+  final String phone;
+
+  const _SanctuaryGuardian({
+    required this.id,
+    required this.name,
+    required this.phone,
+  });
+
+  String get initial {
+    final trimmed = name.trim();
+    return trimmed.isEmpty ? '?' : trimmed[0].toUpperCase();
+  }
+
+  factory _SanctuaryGuardian.fromJson(Map<String, dynamic> json) {
+    return _SanctuaryGuardian(
+      id: json['id']?.toString() ?? '',
+      name: json['name']?.toString() ?? 'Guardian',
+      phone: json['phone']?.toString() ?? '',
+    );
+  }
+}
+
 class _ResponseTile extends StatelessWidget {
   final String name, message, time, distance;
   const _ResponseTile(

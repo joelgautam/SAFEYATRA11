@@ -76,7 +76,7 @@ class _PassiveModeScreenState extends State<PassiveModeScreen>
     await _sendLocationPing();
     _locationPingTimer?.cancel();
     _locationPingTimer = Timer.periodic(
-      const Duration(seconds: 10),
+      const Duration(seconds: 2),
       (_) => _sendLocationPing(),
     );
   }

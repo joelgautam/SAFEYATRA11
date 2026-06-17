@@ -9,6 +9,7 @@ from .models import (
     LocationPing,
     Notification,
     OtpCode,
+    PredefinedRoute,
     SafetyTip,
     Trip,
     TripEvent,
@@ -34,7 +35,15 @@ class GuardianContactSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class PredefinedRouteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PredefinedRoute
+        fields = "__all__"
+
+
 class TripSerializer(serializers.ModelSerializer):
+    predefined_route_detail = PredefinedRouteSerializer(source="predefined_route", read_only=True)
+
     class Meta:
         model = Trip
         fields = "__all__"

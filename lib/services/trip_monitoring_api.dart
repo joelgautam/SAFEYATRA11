@@ -6,11 +6,25 @@ import 'app_session.dart';
 import 'live_location.dart';
 
 class TripMonitoringApi {
+  static Future<List<PredefinedRoute>> getSafeRoutes() async {
+    final response = await http.get(
+      Uri.parse('${AppSession.apiBaseUrl}/predefined-routes/'),
+      headers: {'Content-Type': 'application/json'},
+    );
+    if (response.statusCode != 200) {
+      throw StateError('Could not fetch safe routes.');
+    }
+    final List data = jsonDecode(response.body);
+    return data.map((json) => PredefinedRoute.fromJson(json)).toList();
+  }
+
   static Future<PassiveTripStart> startPassiveTrip({
     required String userId,
     required String startLabel,
     required String destinationLabel,
     LiveLocation? startLocation,
+    LiveLocation? destinationLocation,
+    String? predefinedRouteId,
   }) async {
     final response = await http.post(
       Uri.parse('${AppSession.apiBaseUrl}/trips/start-passive/'),
@@ -21,6 +35,27 @@ class TripMonitoringApi {
         'destination_label': destinationLabel,
         if (startLocation != null) 'start_lat': startLocation.latitude,
         if (startLocation != null) 'start_lng': startLocation.longitude,
+        if (destinationLocation != null)
+          'destination_lat': destinationLocation.latitude,
+        if (destinationLocation != null)
+          'destination_lng': destinationLocation.longitude,
+        if (predefinedRouteId != null) 'predefined_route': predefinedRouteId,
+        if (startLocation != null && destinationLocation != null)
+          'planned_route': {
+            'type': 'line',
+            'points': [
+              {
+                'label': startLabel,
+                'latitude': startLocation.latitude,
+                'longitude': startLocation.longitude,
+              },
+              {
+                'label': destinationLabel,
+                'latitude': destinationLocation.latitude,
+                'longitude': destinationLocation.longitude,
+              },
+            ],
+          },
       }),
     );
     final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -151,6 +186,35 @@ class AlertResult {
   factory AlertResult.fromJson(Map<String, dynamic> json) {
     return AlertResult(
       recipientsNotified: json['recipients_notified'] as int? ?? 0,
+    );
+  }
+}
+
+class PredefinedRoute {
+  final String id;
+  final String name;
+  final String description;
+  final List<LiveLocation> waypoints;
+
+  const PredefinedRoute({
+    required this.id,
+    required this.name,
+    required this.description,
+    required this.waypoints,
+  });
+
+  factory PredefinedRoute.fromJson(Map<String, dynamic> json) {
+    final waypointsList = json['waypoints'] as List? ?? [];
+    return PredefinedRoute(
+      id: json['id'].toString(),
+      name: json['name']?.toString() ?? '',
+      description: json['description']?.toString() ?? '',
+      waypoints: waypointsList.map((w) {
+        return LiveLocation(
+          latitude: (w['lat'] as num).toDouble(),
+          longitude: (w['lng'] as num).toDouble(),
+        );
+      }).toList(),
     );
   }
 }

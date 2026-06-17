@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 class MapTilerLiveMap extends StatelessWidget {
-  static const apiKey = String.fromEnvironment('MAPTILER_KEY');
+  static const apiKey = '0IZLTuHSzUvZD1hB3rDO';
 
   final double centerLatitude;
   final double centerLongitude;

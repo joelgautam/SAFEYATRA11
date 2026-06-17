@@ -10,8 +10,10 @@ from .views import (
     LocationPingViewSet,
     NotificationViewSet,
     OtpCodeViewSet,
+    PredefinedRouteViewSet,
     RequestOtpView,
     SafetyTipViewSet,
+    RouteSearchView,
     TripEventViewSet,
     TripViewSet,
     UserProfileViewSet,
@@ -32,9 +34,11 @@ router.register("otp-codes", OtpCodeViewSet)
 router.register("safety-tips", SafetyTipViewSet)
 router.register("faqs", FaqViewSet)
 router.register("audio-sessions", AudioSafetySessionViewSet)
+router.register("predefined-routes", PredefinedRouteViewSet)
 
 urlpatterns = [
     path("auth/request-otp/", RequestOtpView.as_view(), name="request-otp"),
     path("auth/verify-otp/", VerifyOtpView.as_view(), name="verify-otp"),
+    path("route-search/", RouteSearchView.as_view(), name="route-search"),
     path("", include(router.urls)),
 ]
